@@ -1,11 +1,11 @@
-/**
- * Copyright (c) 2018, The Android Open Source Project
+/*
+ * Copyright (C) 2016 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -14,14 +14,21 @@
  * limitations under the License.
  */
 
-package android.security.keystore;
+#ifndef KEYSTORE_ENTROPY_H_
+#define KEYSTORE_ENTROPY_H_
 
-import android.security.keystore.KeystoreResponse;
-import android.security.keymaster.OperationResult;
+#include <stdint.h>
 
-/**
- * @hide
- */
-oneway interface IKeystoreOperationResultCallback {
-    void onFinished(in OperationResult result);
-}
+class Entropy {
+  public:
+    Entropy() : mRandom(-1) {}
+    ~Entropy();
+
+    bool open();
+    bool generate_random_data(uint8_t* data, size_t size) const;
+
+  private:
+    int mRandom;
+};
+
+#endif  // KEYSTORE_ENTROPY_H_

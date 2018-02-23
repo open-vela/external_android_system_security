@@ -31,8 +31,6 @@ status_t Signature::readFromParcel(const Parcel* parcel) {
     return parcel->readByteVector(&sig_data_);
 }
 
-Signature::Signature(std::vector<uint8_t> signature_data) : sig_data_(std::move(signature_data)) {}
-
 }  // namespace pm
 }  // namespace content
 }  // namespace android

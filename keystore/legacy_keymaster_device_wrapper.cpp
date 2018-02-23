@@ -19,7 +19,7 @@
 
 #include "legacy_keymaster_device_wrapper.h"
 
-#include <log/log.h>
+#include <cutils/log.h>
 
 #include <hardware/keymaster2.h>
 #include <hardware/keymaster_defs.h>
@@ -106,8 +106,7 @@ class KmParamSet : public keymaster_key_param_set_t {
             }
         }
     }
-    KmParamSet(KmParamSet&& other) noexcept
-        : keymaster_key_param_set_t{other.params, other.length} {
+    KmParamSet(KmParamSet&& other) : keymaster_key_param_set_t{other.params, other.length} {
         other.length = 0;
         other.params = nullptr;
     }
@@ -132,18 +131,14 @@ inline static keymaster_key_blob_t hidlVec2KmKeyBlob(const hidl_vec<uint8_t>& bl
 }
 
 inline static hidl_vec<uint8_t> kmBlob2hidlVec(const keymaster_key_blob_t& blob) {
-    if (blob.key_material == nullptr || blob.key_material_size == 0) {
-        return {};
-    } else {
-        return hidl_vec<uint8_t>(blob.key_material, blob.key_material + blob.key_material_size);
-    }
+    hidl_vec<uint8_t> result;
+    result.setToExternal(const_cast<unsigned char*>(blob.key_material), blob.key_material_size);
+    return result;
 }
 inline static hidl_vec<uint8_t> kmBlob2hidlVec(const keymaster_blob_t& blob) {
-    if (blob.data == nullptr || blob.data_length == 0) {
-        return {};
-    } else {
-        return hidl_vec<uint8_t>(blob.data, blob.data + blob.data_length);
-    }
+    hidl_vec<uint8_t> result;
+    result.setToExternal(const_cast<unsigned char*>(blob.data), blob.data_length);
+    return result;
 }
 
 inline static hidl_vec<hidl_vec<uint8_t>>
@@ -190,7 +185,8 @@ static inline hidl_vec<KeyParameter> kmParamSet2Hidl(const keymaster_key_param_s
             break;
         case KM_BIGNUM:
         case KM_BYTES:
-            result[i].blob = kmBlob2hidlVec(params[i].blob);
+            result[i].blob.setToExternal(const_cast<unsigned char*>(params[i].blob.data),
+                                         params[i].blob.data_length);
             break;
         case KM_INVALID:
         default:
