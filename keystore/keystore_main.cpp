@@ -18,7 +18,7 @@
 
 #include <android-base/logging.h>
 #include <android/hidl/manager/1.1/IServiceManager.h>
-#include <android/security/keystore/IKeystoreService.h>
+#include <android/security/IKeystoreService.h>
 #include <android/system/wifi/keystore/1.0/IKeystore.h>
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
@@ -32,6 +32,7 @@
 #include <keystore/keystore_return_types.h>
 
 #include "KeyStore.h"
+#include "entropy.h"
 #include "key_store_service.h"
 #include "legacy_keymaster_device_wrapper.h"
 #include "permissions.h"
@@ -107,12 +108,61 @@ KeymasterDevices enumerateKeymasterDevices(IServiceManager* serviceManager) {
     return result;
 }
 
+void performHmacKeyHandshake(std::initializer_list<const sp<Keymaster>> keymasters) {
+    hidl_vec<HmacSharingParameters> hmacSharingParams(keymasters.size());
+    int index = 0;
+    for (const auto& km : keymasters) {
+        if (!km) continue;
+        ErrorCode ec = ErrorCode::OK;
+        auto rc =
+            km->getHmacSharingParameters([&](ErrorCode error, const HmacSharingParameters& params) {
+                ec = error;
+                if (error == ErrorCode::OK) hmacSharingParams[index] = params;
+            });
+        CHECK(rc.isOk()) << "Communication error while calling getHmacSharingParameters on"
+                            " Keymaster with index: "
+                         << index;
+        CHECK(ec == ErrorCode::OK) << "Failed to get HmacSharingParameters from"
+                                      " Keymaster with index: "
+                                   << index;
+        ++index;
+    }
+    hmacSharingParams.resize(index);
+    hidl_vec<uint8_t> sharingCheck;
+    index = 0;
+    for (const auto& km : keymasters) {
+        if (!km) continue;
+        ErrorCode ec = ErrorCode::OK;
+        auto rc = km->computeSharedHmac(
+            hmacSharingParams, [&](ErrorCode error, const hidl_vec<uint8_t>& sharingCheck_) {
+                ec = error;
+                if (error != ErrorCode::OK) return;
+                if (index == 0) {
+                    sharingCheck = sharingCheck_;
+                } else {
+                    CHECK(sharingCheck == sharingCheck_)
+                        << "Hmac Key computation failed (current index: " << index << ")";
+                }
+            });
+        CHECK(rc.isOk()) << "Communication error while calling computeSharedHmac on"
+                            " Keymaster with index: "
+                         << index;
+        CHECK(ec == ErrorCode::OK) << "Failed to compute shared hmac key from"
+                                      " Keymaster with index: "
+                                   << index;
+        ++index;
+    }
+}
+
 KeymasterDevices initializeKeymasters() {
     auto serviceManager = android::hidl::manager::V1_1::IServiceManager::getService();
     CHECK(serviceManager.get()) << "Failed to get ServiceManager";
     auto result = enumerateKeymasterDevices<Keymaster4>(serviceManager.get());
     auto softKeymaster = result[SecurityLevel::SOFTWARE];
-    if (!result[SecurityLevel::TRUSTED_ENVIRONMENT]) {
+    if (result[SecurityLevel::TRUSTED_ENVIRONMENT]) {
+        performHmacKeyHandshake(
+            {result[SecurityLevel::TRUSTED_ENVIRONMENT], result[SecurityLevel::STRONGBOX]});
+    } else {
         result = enumerateKeymasterDevices<Keymaster3>(serviceManager.get());
     }
     if (softKeymaster) result[SecurityLevel::SOFTWARE] = softKeymaster;
@@ -135,6 +185,9 @@ int main(int argc, char* argv[]) {
     CHECK(argc >= 2) << "A directory must be specified!";
     CHECK(chdir(argv[1]) != -1) << "chdir: " << argv[1] << ": " << strerror(errno);
 
+    Entropy entropy;
+    CHECK(entropy.open()) << "Failed to open entropy source.";
+
     auto kmDevices = initializeKeymasters();
 
     CHECK(kmDevices[SecurityLevel::SOFTWARE]) << "Missing software Keymaster device";
@@ -151,11 +204,10 @@ int main(int argc, char* argv[]) {
     SecurityLevel minimalAllowedSecurityLevelForNewKeys =
         halVersion.majorVersion >= 2 ? SecurityLevel::TRUSTED_ENVIRONMENT : SecurityLevel::SOFTWARE;
 
-    android::sp<keystore::KeyStore> keyStore(
-        new keystore::KeyStore(kmDevices, minimalAllowedSecurityLevelForNewKeys));
-    keyStore->initialize();
+    keystore::KeyStore keyStore(&entropy, kmDevices, minimalAllowedSecurityLevelForNewKeys);
+    keyStore.initialize();
     android::sp<android::IServiceManager> sm = android::defaultServiceManager();
-    android::sp<keystore::KeyStoreService> service = new keystore::KeyStoreService(keyStore);
+    android::sp<keystore::KeyStoreService> service = new keystore::KeyStoreService(&keyStore);
     android::status_t ret = sm->addService(android::String16("android.security.keystore"), service);
     CHECK(ret == android::OK) << "Couldn't register binder service!";
 

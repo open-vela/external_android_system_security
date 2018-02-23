@@ -29,8 +29,6 @@
 #include <utils/StrongPointer.h>
 #include <vector>
 
-#include "confirmationui_rate_limiting.h"
-
 namespace keystore {
 
 using android::binder::Status;
@@ -96,7 +94,6 @@ class ConfirmationManager : public android::hardware::hidl_death_recipient,
     android::sp<android::hardware::confirmationui::V1_0::IConfirmationUI> mCurrentConfirmationUI;
     android::IBinder::DeathRecipient* mDeathRecipient;
     hidl_vec<uint8_t> mLatestConfirmationToken;
-    RateLimiting<> mRateLimiting;
 };
 
 }  // namespace keystore

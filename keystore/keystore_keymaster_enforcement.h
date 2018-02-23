@@ -39,7 +39,7 @@ class KeystoreKeymasterEnforcement : public KeymasterEnforcement {
     }
 
     bool activation_date_valid(uint64_t activation_date) const override {
-        time_t now = time(nullptr);
+        time_t now = time(NULL);
         if (now == static_cast<time_t>(-1)) {
             // Failed to obtain current time -- fail safe: activation_date hasn't yet occurred.
             return false;
@@ -57,7 +57,7 @@ class KeystoreKeymasterEnforcement : public KeymasterEnforcement {
     }
 
     bool expiration_date_passed(uint64_t expiration_date) const override {
-        time_t now = time(nullptr);
+        time_t now = time(NULL);
         if (now == static_cast<time_t>(-1)) {
             // Failed to obtain current time -- fail safe: expiration_date has passed.
             return true;
@@ -85,18 +85,14 @@ class KeystoreKeymasterEnforcement : public KeymasterEnforcement {
         return true;
     }
 
-    bool is_device_locked(int32_t userId) const override {
-        // If we haven't had a set call for this user yet, assume the device is locked.
-        if (mIsDeviceLockedForUser.count(userId) == 0) return true;
-        return mIsDeviceLockedForUser.find(userId)->second;
+    bool is_device_locked(int32_t /*userId*/) const override {
+        // TODO(67752510)
+        return false;
     }
 
-    void set_device_locked(bool isLocked, int32_t userId) {
-        mIsDeviceLockedForUser[userId] = isLocked;
+    void set_device_locked(bool /*isLocked*/, int32_t /*userId*/) {
+        // TODO(67752510)
     }
-
-  private:
-    std::map<int32_t, bool> mIsDeviceLockedForUser;
 };
 
 } // namespace keystore
