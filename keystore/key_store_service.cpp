@@ -1374,14 +1374,7 @@ Status KeyStoreService::begin(const sp<IBinder>& appToken, const String16& name,
                                                             }));
 
         if (!rc.isOk()) result->resultCode = rc;
-        if (!result->resultCode.isOk()) {
-            LOG(ERROR) << "Failed to verify authorization " << rc << " from begin()";
-            rc = KS_HANDLE_HIDL_ERROR(dev->abort(result->handle));
-            if (!rc.isOk()) {
-                LOG(ERROR) << "Failed to abort operation " << rc << " from begin()";
-            }
-            return Status::ok();
-        }
+        if (!result->resultCode.isOk()) return Status::ok();
     }
 
     // Note: The operation map takes possession of the contents of "characteristics".
@@ -1472,12 +1465,7 @@ Status KeyStoreService::update(const sp<IBinder>& token, const KeymasterArgument
 
     // just a reminder: on success result->resultCode was set in the callback. So we only overwrite
     // it if there was a communication error indicated by the ErrorCode.
-    if (!rc.isOk()) {
-        result->resultCode = rc;
-        // removeOperation() will free the memory 'op' used, so the order is important
-        mAuthTokenTable.MarkCompleted(op.handle);
-        mOperationMap.removeOperation(token, /* wasOpSuccessful */ false);
-    }
+    if (!rc.isOk()) result->resultCode = rc;
 
     return Status::ok();
 }
@@ -1599,7 +1587,7 @@ Status KeyStoreService::addAuthToken(const ::std::vector<uint8_t>& authTokenAsVe
 }
 
 int isDeviceIdAttestationRequested(const KeymasterArguments& params) {
-    const hardware::hidl_vec<KeyParameter>& paramsVec = params.getParameters();
+    const hardware::hidl_vec<KeyParameter> paramsVec = params.getParameters();
     int result = 0;
     for (size_t i = 0; i < paramsVec.size(); ++i) {
         switch (paramsVec[i].tag) {
