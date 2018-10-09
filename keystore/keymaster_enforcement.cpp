@@ -25,9 +25,8 @@
 
 #include <openssl/evp.h>
 
+#include <cutils/log.h>
 #include <hardware/hw_auth_token.h>
-#include <log/log.h>
-
 #include <list>
 
 #include <keystore/keystore_hidl_support.h>

@@ -23,7 +23,7 @@
 
 #include <algorithm>
 
-#include <log/log.h>
+#include <cutils/log.h>
 
 namespace keystore {
 
@@ -148,7 +148,7 @@ AuthTokenTable::Error AuthTokenTable::FindTimedAuthorization(const std::vector<u
                                                              HardwareAuthenticatorType auth_type,
                                                              const AuthorizationSet& key_info,
                                                              const HardwareAuthToken** found) {
-    Entry* newest_match = nullptr;
+    Entry* newest_match = NULL;
     for (auto& entry : entries_)
         if (entry.SatisfiesAuth(sids, auth_type) && entry.is_newer_than(newest_match))
             newest_match = &entry;

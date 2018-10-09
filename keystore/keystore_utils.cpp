@@ -22,7 +22,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <log/log.h>
+#include <cutils/log.h>
 #include <private/android_filesystem_config.h>
 #include <private/android_logger.h>
 
