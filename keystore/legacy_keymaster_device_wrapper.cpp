@@ -19,7 +19,7 @@
 
 #include "legacy_keymaster_device_wrapper.h"
 
-#include <cutils/log.h>
+#include <log/log.h>
 
 #include <hardware/keymaster2.h>
 #include <hardware/keymaster_defs.h>
@@ -106,7 +106,8 @@ class KmParamSet : public keymaster_key_param_set_t {
             }
         }
     }
-    KmParamSet(KmParamSet&& other) : keymaster_key_param_set_t{other.params, other.length} {
+    KmParamSet(KmParamSet&& other) noexcept
+        : keymaster_key_param_set_t{other.params, other.length} {
         other.length = 0;
         other.params = nullptr;
     }
