@@ -8,23 +8,30 @@ cc_test {
         "-O0",
     ],
     srcs: [
+        "aaid_truncation_test.cpp",
         "auth_token_table_test.cpp",
         "auth_token_formatting_test.cpp",
         "confirmationui_rate_limiting_test.cpp",
         "gtest_main.cpp",
     ],
     name: "keystore_unit_tests",
-    tags: ["test"],
     static_libs: [
         "android.hardware.confirmationui@1.0",
         "libbase",
+        "libcrypto",
+        "libcutils",
         "libgtest_main",
         "libhidlbase",
         "libkeymaster4support",
         "libkeystore_test",
         "liblog",
+        "libutils",
+        "libvndksupport",
     ],
-    shared_libs: ["libkeymaster_messages"],
+    shared_libs: [
+        "libbinder",
+        "libkeymaster_messages",
+    ],
    sanitize: {
      cfi: false,
    }
