@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <chrono>
 #include <cstdio>
-#include <future>
 #include <memory>
 #include <string>
 #include <vector>
@@ -462,17 +460,33 @@ uint32_t securityLevelOption2Flags(const CommandLine& cmd) {
     return KEYSTORE_FLAG_NONE;
 }
 
-class ConfirmationListener
-    : public android::security::BnConfirmationPromptCallback,
-      public std::promise<std::tuple<ConfirmationResponseCode, std::vector<uint8_t>>> {
+class ConfirmationListener : public android::security::BnConfirmationPromptCallback {
   public:
     ConfirmationListener() {}
 
     virtual ::android::binder::Status
     onConfirmationPromptCompleted(int32_t result,
                                   const ::std::vector<uint8_t>& dataThatWasConfirmed) override {
-        this->set_value({static_cast<ConfirmationResponseCode>(result), dataThatWasConfirmed});
-        return ::android::binder::Status::ok();
+        ConfirmationResponseCode responseCode = static_cast<ConfirmationResponseCode>(result);
+        printf("Confirmation prompt completed\n"
+               "responseCode = %d\n",
+               responseCode);
+        printf("dataThatWasConfirmed[%zd] = {", dataThatWasConfirmed.size());
+        size_t newLineCountDown = 16;
+        bool hasPrinted = false;
+        for (uint8_t element : dataThatWasConfirmed) {
+            if (hasPrinted) {
+                printf(", ");
+            }
+            if (newLineCountDown == 0) {
+                printf("\n  ");
+                newLineCountDown = 32;
+            }
+            printf("0x%02x", element);
+            hasPrinted = true;
+        }
+        printf("}\n");
+        exit(0);
     }
 };
 
@@ -522,7 +536,6 @@ int Confirmation(const std::string& promptText, const std::string& extraDataHex,
 
     sp<ConfirmationListener> listener = new ConfirmationListener();
 
-    auto future = listener->get_future();
     int32_t aidl_return;
     android::binder::Status status = service->presentConfirmationPrompt(
         listener, promptText16, extraData, locale16, uiOptionsAsFlags, &aidl_return);
@@ -536,53 +549,26 @@ int Confirmation(const std::string& promptText, const std::string& extraDataHex,
         printf("Presenting confirmation prompt failed with response code %d.\n", responseCode);
         return 1;
     }
-    printf("Waiting for prompt to complete - use Ctrl+C to abort...\n");
 
     if (cancelAfterValue > 0.0) {
         printf("Sleeping %.1f seconds before canceling prompt...\n", cancelAfterValue);
-        auto fstatus =
-            future.wait_for(std::chrono::milliseconds(uint64_t(cancelAfterValue * 1000)));
-        if (fstatus == std::future_status::timeout) {
-            status = service->cancelConfirmationPrompt(listener, &aidl_return);
-            if (!status.isOk()) {
-                printf("Canceling confirmation prompt failed with binder status '%s'.\n",
-                       status.toString8().c_str());
-                return 1;
-            }
-            responseCode = static_cast<ConfirmationResponseCode>(aidl_return);
-            if (responseCode == ConfirmationResponseCode::Ignored) {
-                // The confirmation was completed by the user so take the response
-            } else if (responseCode != ConfirmationResponseCode::OK) {
-                printf("Canceling confirmation prompt failed with response code %d.\n",
-                       responseCode);
-                return 1;
-            }
+        base::PlatformThread::Sleep(base::TimeDelta::FromSecondsD(cancelAfterValue));
+        status = service->cancelConfirmationPrompt(listener, &aidl_return);
+        if (!status.isOk()) {
+            printf("Canceling confirmation prompt failed with binder status '%s'.\n",
+                   status.toString8().c_str());
+            return 1;
+        }
+        responseCode = static_cast<ConfirmationResponseCode>(aidl_return);
+        if (responseCode != ConfirmationResponseCode::OK) {
+            printf("Canceling confirmation prompt failed with response code %d.\n", responseCode);
+            return 1;
         }
     }
 
-    future.wait();
-
-    auto [rc, dataThatWasConfirmed] = future.get();
-
-    printf("Confirmation prompt completed\n"
-           "responseCode = %d\n",
-           rc);
-    printf("dataThatWasConfirmed[%zd] = {", dataThatWasConfirmed.size());
-    size_t newLineCountDown = 16;
-    bool hasPrinted = false;
-    for (uint8_t element : dataThatWasConfirmed) {
-        if (hasPrinted) {
-            printf(", ");
-        }
-        if (newLineCountDown == 0) {
-            printf("\n  ");
-            newLineCountDown = 32;
-        }
-        printf("0x%02x", element);
-        hasPrinted = true;
-    }
-    printf("}\n");
-
+    printf("Waiting for prompt to complete - use Ctrl+C to abort...\n");
+    // Use the main thread to process Binder transactions.
+    android::IPCThreadState::self()->joinThreadPool();
     return 0;
 }
 
@@ -592,10 +578,6 @@ int main(int argc, char** argv) {
     CommandLine::Init(argc, argv);
     CommandLine* command_line = CommandLine::ForCurrentProcess();
     CommandLine::StringVector args = command_line->GetArgs();
-
-    std::thread thread_pool([] { android::IPCThreadState::self()->joinThreadPool(false); });
-    thread_pool.detach();
-
     if (args.empty()) {
         PrintUsageAndExit();
     }
