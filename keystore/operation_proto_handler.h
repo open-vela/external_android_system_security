@@ -17,25 +17,14 @@
 #ifndef KEYSTORE_OPERATION_PROTO_HANDLER_H_
 #define KEYSTORE_OPERATION_PROTO_HANDLER_H_
 
-#include "operation_config.pb.h"
 #include "operation_struct.h"
-#include <chrono>
-#include <unordered_map>
-#include <vector>
 
 namespace keystore {
 
 using ::android::IBinder;
 using keymaster::support::Keymaster;
 
-class OperationProtoHandler {
-  public:
-    void uploadOpAsProto(Operation& op, bool wasOpSuccessful);
-
-  private:
-    std::unordered_map<std::string, int> protoMap;
-    std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-};
+void uploadOpAsProto(Operation& op, bool wasOpSuccessful);
 
 }  // namespace keystore
 
