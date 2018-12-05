@@ -283,7 +283,7 @@ void WriteFile(const std::string& filename, const std::string& content) {
 
 int AddEntropy(const std::string& input, int32_t flags) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
-    int32_t result = keystore->addRandomNumberGeneratorEntropy(input, flags).getErrorCode();
+    int32_t result = keystore->addRandomNumberGeneratorEntropy(input, flags);
     printf("AddEntropy: %d\n", result);
     return result;
 }
@@ -310,12 +310,12 @@ int GenerateKey(const std::string& name, int32_t flags, bool auth_bound) {
     AuthorizationSet software_enforced_characteristics;
     auto result = keystore->generateKey(name, params, flags, &hardware_enforced_characteristics,
                                         &software_enforced_characteristics);
-    printf("GenerateKey: %d\n", result.getErrorCode());
+    printf("GenerateKey: %d\n", int32_t(result));
     if (result.isOk()) {
         PrintKeyCharacteristics(hardware_enforced_characteristics,
                                 software_enforced_characteristics);
     }
-    return result.getErrorCode();
+    return result;
 }
 
 int GetCharacteristics(const std::string& name) {
@@ -324,32 +324,32 @@ int GetCharacteristics(const std::string& name) {
     AuthorizationSet software_enforced_characteristics;
     auto result = keystore->getKeyCharacteristics(name, &hardware_enforced_characteristics,
                                                   &software_enforced_characteristics);
-    printf("GetCharacteristics: %d\n", result.getErrorCode());
+    printf("GetCharacteristics: %d\n", int32_t(result));
     if (result.isOk()) {
         PrintKeyCharacteristics(hardware_enforced_characteristics,
                                 software_enforced_characteristics);
     }
-    return result.getErrorCode();
+    return result;
 }
 
 int ExportKey(const std::string& name) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     std::string data;
-    int32_t result = keystore->exportKey(KeyFormat::X509, name, &data).getErrorCode();
+    int32_t result = keystore->exportKey(KeyFormat::X509, name, &data);
     printf("ExportKey: %d (%zu)\n", result, data.size());
     return result;
 }
 
 int DeleteKey(const std::string& name) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
-    int32_t result = keystore->deleteKey(name).getErrorCode();
+    int32_t result = keystore->deleteKey(name);
     printf("DeleteKey: %d\n", result);
     return result;
 }
 
 int DeleteAllKeys() {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
-    int32_t result = keystore->deleteAllKeys().getErrorCode();
+    int32_t result = keystore->deleteAllKeys();
     printf("DeleteAllKeys: %d\n", result);
     return result;
 }
@@ -413,8 +413,8 @@ int SignAndVerify(const std::string& name) {
     auto result =
         keystore->beginOperation(KeyPurpose::SIGN, name, sign_params, &output_params, &handle);
     if (!result.isOk()) {
-        printf("Sign: BeginOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Sign: BeginOperation failed: %d\n", int32_t(result));
+        return result;
     }
     AuthorizationSet empty_params;
     size_t num_input_bytes_consumed;
@@ -422,14 +422,14 @@ int SignAndVerify(const std::string& name) {
     result = keystore->updateOperation(handle, empty_params, "data_to_sign",
                                        &num_input_bytes_consumed, &output_params, &output_data);
     if (!result.isOk()) {
-        printf("Sign: UpdateOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Sign: UpdateOperation failed: %d\n", int32_t(result));
+        return result;
     }
     result = keystore->finishOperation(handle, empty_params, std::string() /*signature_to_verify*/,
                                        &output_params, &output_data);
     if (!result.isOk()) {
-        printf("Sign: FinishOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Sign: FinishOperation failed: %d\n", int32_t(result));
+        return result;
     }
     printf("Sign: %zu bytes.\n", output_data.size());
     // We have a signature, now verify it.
@@ -438,24 +438,24 @@ int SignAndVerify(const std::string& name) {
     result =
         keystore->beginOperation(KeyPurpose::VERIFY, name, sign_params, &output_params, &handle);
     if (!result.isOk()) {
-        printf("Verify: BeginOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Verify: BeginOperation failed: %d\n", int32_t(result));
+        return result;
     }
     result = keystore->updateOperation(handle, empty_params, "data_to_sign",
                                        &num_input_bytes_consumed, &output_params, &output_data);
     if (!result.isOk()) {
-        printf("Verify: UpdateOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Verify: UpdateOperation failed: %d\n", int32_t(result));
+        return result;
     }
     result = keystore->finishOperation(handle, empty_params, signature_to_verify, &output_params,
                                        &output_data);
     if (result == ErrorCode::VERIFICATION_FAILED) {
         printf("Verify: Failed to verify signature.\n");
-        return result.getErrorCode();
+        return result;
     }
     if (!result.isOk()) {
-        printf("Verify: FinishOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Verify: FinishOperation failed: %d\n", int32_t(result));
+        return result;
     }
     printf("Verify: OK\n");
     return 0;
