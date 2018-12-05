@@ -64,7 +64,7 @@ class KeyStoreServiceReturnCode {
                errorCode_ == static_cast<int32_t>(ErrorCode::OK);
     }
 
-    inline int32_t getErrorCode() const {
+    inline operator int32_t() const {
         if (!errorCode_) return static_cast<int32_t>(ResponseCode::NO_ERROR /* 1 */);
         return errorCode_;
     }
@@ -99,7 +99,7 @@ inline bool operator!=(const ErrorCode& lhs, const KeyStoreServiceReturnCode& rh
 }
 
 inline std::ostream& operator<<(std::ostream& out, const KeyStoreServiceReturnCode& error) {
-    return out << error.getErrorCode();
+    return out << int32_t(error);
 }
 
 /**
@@ -137,7 +137,7 @@ class KeyStoreNativeReturnCode {
         return errorCode_ == static_cast<int32_t>(ResponseCode::NO_ERROR) ||
                errorCode_ == static_cast<int32_t>(ErrorCode::OK);
     }
-    inline int32_t getErrorCode() const {
+    inline operator int32_t() const {
         if (errorCode_ == static_cast<int32_t>(ResponseCode::NO_ERROR) /* 1 */) {
             return static_cast<int32_t>(ErrorCode::OK) /* 0 */;
         }
@@ -175,13 +175,13 @@ inline bool operator!=(const ErrorCode& lhs, const KeyStoreNativeReturnCode& rhs
 
 inline KeyStoreNativeReturnCode::KeyStoreNativeReturnCode(
     const KeyStoreServiceReturnCode& errorCode)
-    : errorCode_(errorCode.getErrorCode()) {}
+    : errorCode_(int32_t(errorCode)) {}
 inline KeyStoreServiceReturnCode::KeyStoreServiceReturnCode(
     const KeyStoreNativeReturnCode& errorCode)
-    : errorCode_(errorCode.getErrorCode()) {}
+    : errorCode_(int32_t(errorCode)) {}
 
 inline std::ostream& operator<<(std::ostream& out, const KeyStoreNativeReturnCode& error) {
-    return out << error.getErrorCode();
+    return out << int32_t(error);
 }
 
 }  // namespace keystore
