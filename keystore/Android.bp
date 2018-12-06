@@ -13,6 +13,7 @@ cc_defaults {
     },
 
     clang: true,
+    cpp_std: "c++17",
 }
 
 cc_binary {
