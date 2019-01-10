@@ -43,7 +43,7 @@ using ::android::sp;
 
 class LegacyKeymasterDeviceWrapper : public IKeymasterDevice {
   public:
-    explicit LegacyKeymasterDeviceWrapper(keymaster2_device_t* dev);
+    LegacyKeymasterDeviceWrapper(keymaster2_device_t* dev);
     virtual ~LegacyKeymasterDeviceWrapper();
 
     // Methods from ::android::hardware::keymaster::V3_0::IKeymasterDevice follow.

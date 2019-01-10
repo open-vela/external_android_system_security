@@ -384,7 +384,7 @@ int ListAppsWithKeys() {
         return 1;
     }
     int32_t aidl_return;
-    ::std::vector<::std::string> uids;
+    ::std::vector<int32_t> uids(100);
     android::binder::Status status = service->listUidsOfAuthBoundKeys(&uids, &aidl_return);
     if (!status.isOk()) {
         fprintf(stderr, "Requesting uids of auth bound keys failed with error %s.\n",
@@ -397,7 +397,8 @@ int ListAppsWithKeys() {
     }
     printf("Apps with auth bound keys:\n");
     for (auto i = uids.begin(); i != uids.end(); ++i) {
-        printf("%s\n", i->c_str());
+        if (*i == 0) break;
+        printf("%d\n", *i);
     }
     return 0;
 }

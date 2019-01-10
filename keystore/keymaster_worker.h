@@ -95,7 +95,6 @@ class Worker {
 
       public:
         NonCopyableFunction() = default;
-        // NOLINTNEXTLINE(google-explicit-constructor)
         template <typename F> NonCopyableFunction(F f) {
             f_ = std::make_unique<NonCopyableFunctionTypeEraser<F>>(std::move(f));
         }

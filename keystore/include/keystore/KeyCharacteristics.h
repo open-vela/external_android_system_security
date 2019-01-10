@@ -27,7 +27,7 @@ namespace keymaster {
 // Parcelable version of keystore::KeyCharacteristics
 struct KeyCharacteristics : public ::android::Parcelable {
     KeyCharacteristics(){};
-    explicit KeyCharacteristics(::keystore::KeyCharacteristics&& other) {
+    KeyCharacteristics(::keystore::KeyCharacteristics&& other) {
         softwareEnforced = std::move(other.softwareEnforced);
         hardwareEnforced = std::move(other.hardwareEnforced);
     }

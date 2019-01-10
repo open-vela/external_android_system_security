@@ -30,6 +30,7 @@
 #include <mutex>
 #include <set>
 #include <sstream>
+#include <vector>
 
 constexpr size_t kValueSize = 32768;
 constexpr size_t kAesKeySize = 128 / 8;
@@ -89,7 +90,6 @@ typedef enum {
     TYPE_KEY_CHARACTERISTICS_CACHE = 6,
 } BlobType;
 
-class Entropy;
 class LockedKeyBlobEntry;
 
 /**
@@ -115,7 +115,7 @@ class Blob {
 
     Blob& operator=(const Blob& rhs);
     Blob& operator=(Blob&& rhs);
-    explicit operator bool() const { return bool(mBlob); }
+    operator bool() const { return bool(mBlob); }
 
     const uint8_t* getValue() const { return mBlob->value; }
 
@@ -154,7 +154,8 @@ class Blob {
   private:
     std::unique_ptr<blobv3> mBlob;
 
-    ResponseCode readBlob(const std::string& filename, const uint8_t* aes_key, State state);
+    ResponseCode readBlob(const std::string& filename, const std::vector<uint8_t>& aes_key,
+                          State state);
 };
 
 /**
@@ -239,7 +240,6 @@ class LockedKeyBlobEntry {
     static std::condition_variable locked_blobs_mutex_cond_var_;
 
     const KeyBlobEntry* entry_;
-    // NOLINTNEXTLINE(google-explicit-constructor)
     LockedKeyBlobEntry(const KeyBlobEntry& entry) : entry_(&entry) {}
 
     static void put(const KeyBlobEntry& entry);
@@ -263,12 +263,13 @@ class LockedKeyBlobEntry {
          std::function<bool(uid_t, const std::string&)> filter =
              [](uid_t, const std::string&) -> bool { return true; });
 
-    ResponseCode writeBlobs(Blob keyBlob, Blob characteristicsBlob, const uint8_t* aes_key,
-                            State state, Entropy* entorpy) const;
-    std::tuple<ResponseCode, Blob, Blob> readBlobs(const uint8_t* aes_key, State state) const;
+    ResponseCode writeBlobs(Blob keyBlob, Blob characteristicsBlob,
+                            const std::vector<uint8_t>& aes_key, State state) const;
+    std::tuple<ResponseCode, Blob, Blob> readBlobs(const std::vector<uint8_t>& aes_key,
+                                                   State state) const;
     ResponseCode deleteBlobs() const;
 
-    inline explicit operator bool() const { return entry_ != nullptr; }
+    inline operator bool() const { return entry_ != nullptr; }
     inline const KeyBlobEntry& operator*() const { return *entry_; }
     inline const KeyBlobEntry* operator->() const { return entry_; }
 };
