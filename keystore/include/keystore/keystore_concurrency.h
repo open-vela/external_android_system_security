@@ -85,10 +85,9 @@ template <typename Implementation> class ProxyLock {
 
   public:
     ProxyLock() : impl_() {}
-    // NOLINTNEXTLINE(google-explicit-constructor)
     template <typename... Args> ProxyLock(Args&&... args) : impl_{std::forward<Args>(args)...} {}
-    explicit ProxyLock(Implementation&& impl) : impl_(std::move(impl)) {}
-    explicit operator bool() const { return impl_.value() != nullptr; }
+    ProxyLock(Implementation&& impl) : impl_(std::move(impl)) {}
+    operator bool() const { return impl_.value() != nullptr; }
 
     template <typename T = typename Implementation::lockedType>
     std::enable_if_t<!std::is_const<typename Implementation::lockedType>::value, T*> operator->() {

@@ -69,6 +69,8 @@ using ::android::security::keystore::KeystoreResponse;
 
 constexpr double kIdRotationPeriod = 30 * 24 * 60 * 60; /* Thirty days, in seconds */
 const char* kTimestampFilePath = "timestamp";
+const int ID_ATTESTATION_REQUEST_GENERIC_INFO = 1 << 0;
+const int ID_ATTESTATION_REQUEST_UNIQUE_DEVICE_ID = 1 << 1;
 
 struct BIGNUM_Delete {
     void operator()(BIGNUM* p) const { BN_free(p); }
@@ -279,7 +281,7 @@ Status KeyStoreService::list(const String16& prefix, int32_t targetUid,
  * if the password/pin is removed. Only allowed to be called by system.
  * The output is bound by the initial size of uidsOut to be compatible with Java.
  */
-Status KeyStoreService::listUidsOfAuthBoundKeys(std::vector<std::string>* uidsOut,
+Status KeyStoreService::listUidsOfAuthBoundKeys(::std::vector<int32_t>* uidsOut,
                                                 int32_t* aidl_return) {
     const int32_t callingUid = IPCThreadState::self()->getCallingUid();
     const int32_t userId = get_user_id(callingUid);
@@ -310,11 +312,14 @@ Status KeyStoreService::listUidsOfAuthBoundKeys(std::vector<std::string>* uidsOu
         return Status::fromServiceSpecificError(static_cast<int32_t>(rc));
     }
 
+    auto it = uidsOut->begin();
     for (LockedKeyBlobEntry& entry : internal_matches) {
-        // Need to store uids as a list of strings because integer list output
-        // parameters is not supported in aidl-cpp.
-        std::string entryUid = std::to_string(entry->uid());
-        if (std::find(uidsOut->begin(), uidsOut->end(), entryUid) != uidsOut->end()) {
+        if (it == uidsOut->end()) {
+            ALOGW("Maximum number (%d) of auth bound uids found, truncating remainder",
+                  static_cast<int32_t>(uidsOut->capacity()));
+            break;
+        }
+        if (std::find(uidsOut->begin(), it, entry->uid()) != it) {
             // uid already in list, skip
             continue;
         }
@@ -326,7 +331,7 @@ Status KeyStoreService::listUidsOfAuthBoundKeys(std::vector<std::string>* uidsOu
         }
 
         if (blob && blob.isEncrypted()) {
-            uidsOut->push_back(entryUid);
+            *it++ = entry->uid();
         } else if (charBlob) {
             auto [success, hwEnforced, swEnforced] = charBlob.getKeyCharacteristics();
             if (!success) {
@@ -335,7 +340,7 @@ Status KeyStoreService::listUidsOfAuthBoundKeys(std::vector<std::string>* uidsOu
             }
             if (hwEnforced.Contains(TAG_USER_SECURE_ID) ||
                 swEnforced.Contains(TAG_USER_SECURE_ID)) {
-                uidsOut->push_back(entryUid);
+                *it++ = entry->uid();
             }
         }
     }
@@ -964,8 +969,9 @@ Status KeyStoreService::addAuthToken(const ::std::vector<uint8_t>& authTokenAsVe
     return Status::ok();
 }
 
-bool isDeviceIdAttestationRequested(const KeymasterArguments& params) {
+int isDeviceIdAttestationRequested(const KeymasterArguments& params) {
     const hardware::hidl_vec<KeyParameter>& paramsVec = params.getParameters();
+    int result = 0;
     for (size_t i = 0; i < paramsVec.size(); ++i) {
         switch (paramsVec[i].tag) {
         case Tag::ATTESTATION_ID_BRAND:
@@ -973,15 +979,18 @@ bool isDeviceIdAttestationRequested(const KeymasterArguments& params) {
         case Tag::ATTESTATION_ID_MANUFACTURER:
         case Tag::ATTESTATION_ID_MODEL:
         case Tag::ATTESTATION_ID_PRODUCT:
+            result |= ID_ATTESTATION_REQUEST_GENERIC_INFO;
+            break;
         case Tag::ATTESTATION_ID_IMEI:
         case Tag::ATTESTATION_ID_MEID:
         case Tag::ATTESTATION_ID_SERIAL:
-            return true;
+            result |= ID_ATTESTATION_REQUEST_UNIQUE_DEVICE_ID;
+            break;
         default:
             continue;
         }
     }
-    return false;
+    return result;
 }
 
 Status KeyStoreService::attestKey(
@@ -994,7 +1003,15 @@ Status KeyStoreService::attestKey(
 
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
 
-    if (isDeviceIdAttestationRequested(params) && (get_app_id(callingUid) != AID_SYSTEM)) {
+    int needsIdAttestation = isDeviceIdAttestationRequested(params);
+    bool needsUniqueIdAttestation = needsIdAttestation & ID_ATTESTATION_REQUEST_UNIQUE_DEVICE_ID;
+    bool isPrimaryUserSystemUid = (callingUid == AID_SYSTEM);
+    bool isSomeUserSystemUid = (get_app_id(callingUid) == AID_SYSTEM);
+    // Allow system context from any user to request attestation with basic device information,
+    // while only allow system context from user 0 (device owner) to request attestation with
+    // unique device ID.
+    if ((needsIdAttestation && !isSomeUserSystemUid) ||
+        (needsUniqueIdAttestation && !isPrimaryUserSystemUid)) {
         return AIDL_RETURN(KeyStoreServiceReturnCode(ErrorCode::INVALID_ARGUMENT));
     }
 
@@ -1222,8 +1239,7 @@ uid_t KeyStoreService::getEffectiveUid(int32_t targetUid) {
 bool KeyStoreService::checkBinderPermission(perm_t permission, int32_t targetUid) {
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
     pid_t spid = IPCThreadState::self()->getCallingPid();
-    const char* ssid = IPCThreadState::self()->getCallingSid();
-    if (!has_permission(callingUid, permission, spid, ssid)) {
+    if (!has_permission(callingUid, permission, spid)) {
         ALOGW("permission %s denied for %d", get_perm_label(permission), callingUid);
         return false;
     }
@@ -1241,8 +1257,7 @@ bool KeyStoreService::checkBinderPermission(perm_t permission, int32_t targetUid
 bool KeyStoreService::checkBinderPermissionSelfOrSystem(perm_t permission, int32_t targetUid) {
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
     pid_t spid = IPCThreadState::self()->getCallingPid();
-    const char* ssid = IPCThreadState::self()->getCallingSid();
-    if (!has_permission(callingUid, permission, spid, ssid)) {
+    if (!has_permission(callingUid, permission, spid)) {
         ALOGW("permission %s denied for %d", get_perm_label(permission), callingUid);
         return false;
     }
