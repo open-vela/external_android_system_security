@@ -535,7 +535,7 @@ class Finalize {
     std::function<void()> f_;
 
   public:
-    explicit Finalize(std::function<void()> f) : f_(f) {}
+    Finalize(std::function<void()> f) : f_(f) {}
     ~Finalize() {
         if (f_) f_();
     }
