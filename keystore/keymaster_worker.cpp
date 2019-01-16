@@ -346,7 +346,7 @@ void KeymasterWorker::begin(LockedKeyBlobEntry lockedEntry, sp<IBinder> appToken
         {
             hidl_vec<uint8_t> clientId;
             hidl_vec<uint8_t> appData;
-            for (auto param : opParams) {
+            for (const auto& param : opParams) {
                 if (param.tag == Tag::APPLICATION_ID) {
                     clientId = authorizationValue(TAG_APPLICATION_ID, param).value();
                 } else if (param.tag == Tag::APPLICATION_DATA) {
@@ -535,7 +535,7 @@ class Finalize {
     std::function<void()> f_;
 
   public:
-    Finalize(std::function<void()> f) : f_(f) {}
+    explicit Finalize(std::function<void()> f) : f_(f) {}
     ~Finalize() {
         if (f_) f_();
     }
