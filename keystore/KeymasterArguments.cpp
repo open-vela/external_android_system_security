@@ -34,9 +34,6 @@ status_t KeymasterArguments::writeToParcel(android::Parcel* out) const {
     return keystore::writeParamSetToParcel(data_, out);
 };
 
-KeymasterArguments::KeymasterArguments(hardware::hidl_vec<keystore::KeyParameter>&& other)
-    : data_(std::move(other)) {}
-
 KeymasterArguments::KeymasterArguments(const hardware::hidl_vec<keystore::KeyParameter>& other)
     : data_(other) {}
 
