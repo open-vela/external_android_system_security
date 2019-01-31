@@ -31,6 +31,7 @@ cc_binary {
         "key_store_service.cpp",
         "keyblob_utils.cpp",
         "keymaster_enforcement.cpp",
+        "keymaster_worker.cpp",
         "keystore_attestation_id.cpp",
         "keystore_main.cpp",
         "keystore_utils.cpp",
@@ -49,6 +50,7 @@ cc_binary {
         "libbase",
         "libbinder",
         "libcrypto",
+        "libcutils",
         "libhardware",
         "libhidlbase",
         "libhidltransport",
@@ -76,6 +78,13 @@ cc_binary {
         pdk: {
             enabled: false,
         },
+	debuggable: {
+            cflags: [
+                // Allow VTS tests running as root to have
+                // additional permissions.
+                "-DGRANT_ROOT_ALL_PERMISSIONS",
+            ],
+        },
     },
 
     required: ["keystore_cli_v2"],
@@ -84,7 +93,6 @@ cc_binary {
 cc_binary {
     name: "keystore_cli",
     defaults: ["keystore_defaults"],
-    tags: ["debug"],
 
     srcs: ["keystore_cli.cpp"],
     shared_libs: [
@@ -105,7 +113,6 @@ cc_binary {
 cc_binary {
     name: "keystore_cli_v2",
     defaults: ["keystore_defaults"],
-    tags: ["debug"],
 
     cflags: [
         "-DKEYMASTER_NAME_TAGS",
@@ -137,10 +144,10 @@ cc_library_shared {
         "KeyAttestationApplicationId.cpp",
         "KeyAttestationPackageInfo.cpp",
         "KeymasterArguments.cpp",
-        "KeystoreArguments.cpp",
+        "keystore_aidl_hidl_marshalling_utils.cpp",
+        "KeystoreResponse.cpp",
         "OperationResult.cpp",
         "Signature.cpp",
-        "keystore_aidl_hidl_marshalling_utils.cpp",
     ],
     shared_libs: [
         "android.hardware.keymaster@4.0",
@@ -230,16 +237,26 @@ cc_library_static {
     defaults: ["keystore_defaults"],
 
     srcs: [
+        ":IKeyAttestationApplicationIdProvider.aidl",
         "auth_token_table.cpp",
+        "blob.cpp",
+        "keystore_attestation_id.cpp",
+        "KeyAttestationApplicationId.cpp",
+        "KeyAttestationPackageInfo.cpp",
+        "Signature.cpp",
     ],
     cflags: [ "-O0", ],
     static_libs: ["libgtest_main"],
     shared_libs: [
         "android.hardware.keymaster@4.0",
+        "libbinder",
+        "libcrypto",
         "libhidlbase",
         "libhwbinder",
         "libkeymaster4support",
         "libutils",
+        "libkeystore_aidl",
+        "libkeystore_parcelables",
     ],
     export_shared_lib_headers: [
         "android.hardware.keymaster@4.0",
@@ -248,6 +265,9 @@ cc_library_static {
         "libkeymaster4support",
     ],
 
+    aidl: {
+        include_dirs: ["frameworks/base/core/java/"],
+    },
     export_include_dirs: ["include"],
 }
 
@@ -255,8 +275,14 @@ filegroup {
     name: "keystore_aidl",
     srcs: [
         "binder/android/security/IConfirmationPromptCallback.aidl",
-        "binder/android/security/IKeystoreService.aidl",
+        "binder/android/security/keystore/IKeystoreCertificateChainCallback.aidl",
+        "binder/android/security/keystore/IKeystoreExportKeyCallback.aidl",
+        "binder/android/security/keystore/IKeystoreKeyCharacteristicsCallback.aidl",
+        "binder/android/security/keystore/IKeystoreOperationResultCallback.aidl",
+        "binder/android/security/keystore/IKeystoreResponseCallback.aidl",
+        "binder/android/security/keystore/IKeystoreService.aidl",
     ],
+    path: "binder",
 }
 
 cc_library_shared {
@@ -285,5 +311,3 @@ cc_library_shared {
         "libkeystore_parcelables",
     ],
 }
-
-subdirs = ["tests"]
