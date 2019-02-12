@@ -13,7 +13,6 @@ cc_defaults {
     },
 
     clang: true,
-    cpp_std: "c++17",
 }
 
 cc_binary {
@@ -26,7 +25,6 @@ cc_binary {
         "auth_token_table.cpp",
         "blob.cpp",
         "confirmation_manager.cpp",
-        "entropy.cpp",
         "grant_store.cpp",
         "key_config.proto",
         "key_proto_handler.cpp",
@@ -79,6 +77,13 @@ cc_binary {
     product_variables: {
         pdk: {
             enabled: false,
+        },
+	debuggable: {
+            cflags: [
+                // Allow VTS tests running as root to have
+                // additional permissions.
+                "-DGRANT_ROOT_ALL_PERMISSIONS",
+            ],
         },
     },
 
