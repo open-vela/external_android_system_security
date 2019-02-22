@@ -14,29 +14,29 @@
  * limitations under the License.
  */
 
-#ifndef KEYSTORE_OPERATION_PROTO_HANDLER_H_
-#define KEYSTORE_OPERATION_PROTO_HANDLER_H_
+#include <gtest/gtest.h>
 
-#include "operation_config.pb.h"
-#include "operation_struct.h"
-#include <chrono>
-#include <unordered_map>
-#include <vector>
+#include <string>
+#include <utils/String16.h>
+
+#include "../blob.h"
 
 namespace keystore {
 
-using ::android::IBinder;
-using keymaster::support::Keymaster;
+namespace test {
 
-class OperationProtoHandler {
-  public:
-    void uploadOpAsProto(Operation& op, bool wasOpSuccessful);
+namespace {
 
-  private:
-    std::unordered_map<std::string, int> protoMap;
-    std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-};
+constexpr const char* kNameToEncode = "some key name !\\ %#|\"";
 
+}  // namespace
+
+TEST(BlobTest, nameEncodingAndDecodingTest) {
+    std::string toEncode(kNameToEncode);
+    std::string decoded(decodeKeyName(encodeKeyName(toEncode)));
+
+    ASSERT_EQ(toEncode, decoded);
+}
+
+}  // namespace test
 }  // namespace keystore
-
-#endif  // KEYSTORE_OPERATION_PROTO_HANDLER_H_
