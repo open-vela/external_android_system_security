@@ -21,10 +21,6 @@
 
 #include <keystore/keymaster_types.h>
 
-#include <list>
-#include <mutex>
-#include <optional>
-
 namespace keystore {
 
 typedef uint64_t km_id_t;
@@ -37,50 +33,8 @@ class KeymasterEnforcementContext {
      */
 };
 
-class AccessTimeMap {
-  public:
-    explicit AccessTimeMap(uint32_t max_size) : max_size_(max_size) {}
-
-    /* If the key is found, returns true and fills \p last_access_time.  If not found returns
-     * false. */
-    bool LastKeyAccessTime(km_id_t keyid, uint32_t* last_access_time) const;
-
-    /* Updates the last key access time with the currentTime parameter.  Adds the key if
-     * needed, returning false if key cannot be added because list is full. */
-    bool UpdateKeyAccessTime(km_id_t keyid, uint32_t current_time, uint32_t timeout);
-
-  private:
-    mutable std::mutex list_lock_;
-    struct AccessTime {
-        km_id_t keyid;
-        uint32_t access_time;
-        uint32_t timeout;
-    };
-    std::list<AccessTime> last_access_list_;
-    const uint32_t max_size_;
-};
-
-class AccessCountMap {
-  public:
-    explicit AccessCountMap(uint32_t max_size) : max_size_(max_size) {}
-
-    /* If the key is found, returns true and fills \p count.  If not found returns
-     * false. */
-    bool KeyAccessCount(km_id_t keyid, uint32_t* count) const;
-
-    /* Increments key access count, adding an entry if the key has never been used.  Returns
-     * false if the list has reached maximum size. */
-    bool IncrementKeyAccessCount(km_id_t keyid);
-
-  private:
-    mutable std::mutex list_lock_;
-    struct AccessCount {
-        km_id_t keyid;
-        uint64_t access_count;
-    };
-    std::list<AccessCount> access_count_list_;
-    const uint32_t max_size_;
-};
+class AccessTimeMap;
+class AccessCountMap;
 
 class KeymasterEnforcement {
   public:
@@ -138,7 +92,7 @@ class KeymasterEnforcement {
      *
      * Returns false if an error in the crypto library prevents creation of an ID.
      */
-    static std::optional<km_id_t> CreateKeyId(const hidl_vec<uint8_t>& key_blob);
+    static bool CreateKeyId(const hidl_vec<uint8_t>& key_blob, km_id_t* keyid);
 
     //
     // Methods that must be implemented by subclasses
@@ -204,8 +158,8 @@ class KeymasterEnforcement {
                           const int auth_timeout_index, const uint64_t op_handle,
                           bool is_begin_operation) const;
 
-    AccessTimeMap access_time_map_;
-    AccessCountMap access_count_map_;
+    AccessTimeMap* access_time_map_;
+    AccessCountMap* access_count_map_;
 };
 
 }; /* namespace keystore */
