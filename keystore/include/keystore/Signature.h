@@ -15,9 +15,9 @@
 #ifndef KEYSTORE_INCLUDE_KEYSTORE_SIGNATURE_H_
 #define KEYSTORE_INCLUDE_KEYSTORE_SIGNATURE_H_
 
-#include <binder/Parcelable.h>
-#include <stdint.h>
 #include <vector>
+
+#include <binder/Parcelable.h>
 
 namespace android {
 namespace content {
@@ -25,6 +25,10 @@ namespace pm {
 
 class Signature : public Parcelable {
   public:
+    Signature() = default;
+    // Intended for initializing instances containing test data.
+    explicit Signature(std::vector<uint8_t> signature_data);
+
     status_t writeToParcel(Parcel*) const override;
     status_t readFromParcel(const Parcel* parcel) override;
 
