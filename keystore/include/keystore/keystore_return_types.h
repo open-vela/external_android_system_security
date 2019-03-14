@@ -18,12 +18,12 @@
 #ifndef KEYSTORE_INCLUDE_KEYSTORE_KEYSTORE_RETURN_TYPES_H_
 #define KEYSTORE_INCLUDE_KEYSTORE_KEYSTORE_RETURN_TYPES_H_
 
+#include "keymaster_types.h"
 #include "keystore.h"
-#include <android/hardware/keymaster/3.0/IHwKeymasterDevice.h>
 
 namespace keystore {
 
-using ::android::hardware::keymaster::V3_0::ErrorCode;
+using keymaster::ErrorCode;
 
 class KeyStoreServiceReturnCode;
 class KeyStoreNativeReturnCode;
@@ -41,11 +41,15 @@ class KeyStoreNativeReturnCode;
 class KeyStoreServiceReturnCode {
   public:
     KeyStoreServiceReturnCode() : errorCode_(0) {}
+    // NOLINTNEXTLINE(google-explicit-constructor)
     KeyStoreServiceReturnCode(const ErrorCode& errorCode) : errorCode_(int32_t(errorCode)) {}
+    // NOLINTNEXTLINE(google-explicit-constructor)
     KeyStoreServiceReturnCode(const ResponseCode& errorCode) : errorCode_(int32_t(errorCode)) {}
     KeyStoreServiceReturnCode(const KeyStoreServiceReturnCode& errorCode)
         : errorCode_(errorCode.errorCode_) {}
+    // NOLINTNEXTLINE(google-explicit-constructor)
     KeyStoreServiceReturnCode(const KeyStoreNativeReturnCode& errorCode);
+    explicit inline KeyStoreServiceReturnCode(const int32_t& errorCode) : errorCode_(errorCode) {}
     inline KeyStoreServiceReturnCode& operator=(const ErrorCode& errorCode) {
         errorCode_ = int32_t(errorCode);
         return *this;
@@ -62,8 +66,9 @@ class KeyStoreServiceReturnCode {
         return errorCode_ == static_cast<int32_t>(ResponseCode::NO_ERROR) ||
                errorCode_ == static_cast<int32_t>(ErrorCode::OK);
     }
-    inline operator int32_t() const {
-        if (!errorCode_) return static_cast<int32_t>(ResponseCode::NO_ERROR);
+
+    inline int32_t getErrorCode() const {
+        if (!errorCode_) return static_cast<int32_t>(ResponseCode::NO_ERROR /* 1 */);
         return errorCode_;
     }
     inline bool operator==(const ResponseCode& rhs) const {
@@ -97,7 +102,7 @@ inline bool operator!=(const ErrorCode& lhs, const KeyStoreServiceReturnCode& rh
 }
 
 inline std::ostream& operator<<(std::ostream& out, const KeyStoreServiceReturnCode& error) {
-    return out << int32_t(error);
+    return out << error.getErrorCode();
 }
 
 /**
@@ -113,10 +118,14 @@ inline std::ostream& operator<<(std::ostream& out, const KeyStoreServiceReturnCo
 class KeyStoreNativeReturnCode {
   public:
     KeyStoreNativeReturnCode() : errorCode_(0) {}
+    // NOLINTNEXTLINE(google-explicit-constructor)
     KeyStoreNativeReturnCode(const ErrorCode& errorCode) : errorCode_(int32_t(errorCode)) {}
+    // NOLINTNEXTLINE(google-explicit-constructor)
     KeyStoreNativeReturnCode(const ResponseCode& errorCode) : errorCode_(int32_t(errorCode)) {}
     KeyStoreNativeReturnCode(const KeyStoreNativeReturnCode& errorCode)
         : errorCode_(errorCode.errorCode_) {}
+    explicit inline KeyStoreNativeReturnCode(const int32_t& errorCode) : errorCode_(errorCode) {}
+    // NOLINTNEXTLINE(google-explicit-constructor)
     KeyStoreNativeReturnCode(const KeyStoreServiceReturnCode& errorcode);
     inline KeyStoreNativeReturnCode& operator=(const ErrorCode& errorCode) {
         errorCode_ = int32_t(errorCode);
@@ -134,9 +143,9 @@ class KeyStoreNativeReturnCode {
         return errorCode_ == static_cast<int32_t>(ResponseCode::NO_ERROR) ||
                errorCode_ == static_cast<int32_t>(ErrorCode::OK);
     }
-    inline operator int32_t() const {
-        if (errorCode_ == static_cast<int32_t>(ResponseCode::NO_ERROR)) {
-            return static_cast<int32_t>(ErrorCode::OK);
+    inline int32_t getErrorCode() const {
+        if (errorCode_ == static_cast<int32_t>(ResponseCode::NO_ERROR) /* 1 */) {
+            return static_cast<int32_t>(ErrorCode::OK) /* 0 */;
         }
         return errorCode_;
     }
@@ -172,13 +181,13 @@ inline bool operator!=(const ErrorCode& lhs, const KeyStoreNativeReturnCode& rhs
 
 inline KeyStoreNativeReturnCode::KeyStoreNativeReturnCode(
     const KeyStoreServiceReturnCode& errorCode)
-    : errorCode_(int32_t(errorCode)) {}
+    : errorCode_(errorCode.getErrorCode()) {}
 inline KeyStoreServiceReturnCode::KeyStoreServiceReturnCode(
     const KeyStoreNativeReturnCode& errorCode)
-    : errorCode_(int32_t(errorCode)) {}
+    : errorCode_(errorCode.getErrorCode()) {}
 
 inline std::ostream& operator<<(std::ostream& out, const KeyStoreNativeReturnCode& error) {
-    return out << int32_t(error);
+    return out << error.getErrorCode();
 }
 
 }  // namespace keystore
