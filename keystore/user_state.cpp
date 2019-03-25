@@ -24,9 +24,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 
-#include <openssl/digest.h>
 #include <openssl/evp.h>
-#include <openssl/rand.h>
 
 #include <cutils/log.h>
 
@@ -68,8 +66,10 @@ void UserState::setState(State state) {
 }
 
 void UserState::zeroizeMasterKeysInMemory() {
-    memset(mMasterKey.data(), 0, mMasterKey.size());
+    memset(mMasterKey, 0, sizeof(mMasterKey));
     memset(mSalt, 0, sizeof(mSalt));
+    memset(&mMasterKeyEncryption, 0, sizeof(mMasterKeyEncryption));
+    memset(&mMasterKeyDecryption, 0, sizeof(mMasterKeyDecryption));
 }
 
 bool UserState::deleteMasterKey() {
@@ -78,11 +78,11 @@ bool UserState::deleteMasterKey() {
     return unlink(mMasterKeyFile) == 0 || errno == ENOENT;
 }
 
-ResponseCode UserState::initialize(const android::String8& pw) {
-    if (!generateMasterKey()) {
+ResponseCode UserState::initialize(const android::String8& pw, Entropy* entropy) {
+    if (!generateMasterKey(entropy)) {
         return ResponseCode::SYSTEM_ERROR;
     }
-    ResponseCode response = writeMasterKey(pw);
+    ResponseCode response = writeMasterKey(pw, entropy);
     if (response != ResponseCode::NO_ERROR) {
         return response;
     }
@@ -97,7 +97,7 @@ ResponseCode UserState::copyMasterKey(UserState* src) {
     if (src->getState() != STATE_NO_ERROR) {
         return ResponseCode::SYSTEM_ERROR;
     }
-    mMasterKey = src->mMasterKey;
+    memcpy(mMasterKey, src->mMasterKey, MASTER_KEY_SIZE_BYTES);
     setupMasterKeys();
     return copyMasterKeyFile(src);
 }
@@ -110,7 +110,7 @@ ResponseCode UserState::copyMasterKeyFile(UserState* src) {
     if (in < 0) {
         return ResponseCode::SYSTEM_ERROR;
     }
-    blobv3 rawBlob;
+    blob rawBlob;
     size_t length = readFully(in, (uint8_t*)&rawBlob, sizeof(rawBlob));
     if (close(in) != 0) {
         return ResponseCode::SYSTEM_ERROR;
@@ -132,15 +132,16 @@ ResponseCode UserState::copyMasterKeyFile(UserState* src) {
     return ResponseCode::NO_ERROR;
 }
 
-ResponseCode UserState::writeMasterKey(const android::String8& pw) {
-    std::vector<uint8_t> passwordKey(MASTER_KEY_SIZE_BYTES);
-    generateKeyFromPassword(passwordKey, pw, mSalt);
-    Blob masterKeyBlob(mMasterKey.data(), mMasterKey.size(), mSalt, sizeof(mSalt),
-                       TYPE_MASTER_KEY_AES256);
-    return masterKeyBlob.writeBlob(mMasterKeyFile, passwordKey, STATE_NO_ERROR);
+ResponseCode UserState::writeMasterKey(const android::String8& pw, Entropy* entropy) {
+    uint8_t passwordKey[MASTER_KEY_SIZE_BYTES];
+    generateKeyFromPassword(passwordKey, MASTER_KEY_SIZE_BYTES, pw, mSalt);
+    AES_KEY passwordAesKey;
+    AES_set_encrypt_key(passwordKey, MASTER_KEY_SIZE_BITS, &passwordAesKey);
+    Blob masterKeyBlob(mMasterKey, sizeof(mMasterKey), mSalt, sizeof(mSalt), TYPE_MASTER_KEY);
+    return masterKeyBlob.writeBlob(mMasterKeyFile, &passwordAesKey, STATE_NO_ERROR, entropy);
 }
 
-ResponseCode UserState::readMasterKey(const android::String8& pw) {
+ResponseCode UserState::readMasterKey(const android::String8& pw, Entropy* entropy) {
     int in = TEMP_FAILURE_RETRY(open(mMasterKeyFile, O_RDONLY));
     if (in < 0) {
         return ResponseCode::SYSTEM_ERROR;
@@ -148,7 +149,7 @@ ResponseCode UserState::readMasterKey(const android::String8& pw) {
 
     // We read the raw blob to just to get the salt to generate the AES key, then we create the Blob
     // to use with decryptBlob
-    blobv3 rawBlob;
+    blob rawBlob;
     size_t length = readFully(in, (uint8_t*)&rawBlob, sizeof(rawBlob));
     if (close(in) != 0) {
         return ResponseCode::SYSTEM_ERROR;
@@ -160,33 +161,25 @@ ResponseCode UserState::readMasterKey(const android::String8& pw) {
     } else {
         salt = NULL;
     }
-
-    size_t masterKeySize = MASTER_KEY_SIZE_BYTES;
-    if (rawBlob.type == TYPE_MASTER_KEY) {
-        masterKeySize = SHA1_DIGEST_SIZE_BYTES;
-    }
-
-    std::vector<uint8_t> passwordKey(masterKeySize);
-    generateKeyFromPassword(passwordKey, pw, salt);
+    uint8_t passwordKey[MASTER_KEY_SIZE_BYTES];
+    generateKeyFromPassword(passwordKey, MASTER_KEY_SIZE_BYTES, pw, salt);
+    AES_KEY passwordAesKey;
+    AES_set_decrypt_key(passwordKey, MASTER_KEY_SIZE_BITS, &passwordAesKey);
     Blob masterKeyBlob(rawBlob);
-    ResponseCode response = masterKeyBlob.readBlob(mMasterKeyFile, passwordKey, STATE_NO_ERROR);
+    ResponseCode response = masterKeyBlob.readBlob(mMasterKeyFile, &passwordAesKey, STATE_NO_ERROR);
     if (response == ResponseCode::SYSTEM_ERROR) {
         return response;
     }
-
-    size_t masterKeyBlobLength = static_cast<size_t>(masterKeyBlob.getLength());
-
-    if (response == ResponseCode::NO_ERROR && masterKeyBlobLength == masterKeySize) {
+    if (response == ResponseCode::NO_ERROR && masterKeyBlob.getLength() == MASTER_KEY_SIZE_BYTES) {
         // If salt was missing, generate one and write a new master key file with the salt.
         if (salt == NULL) {
-            if (!generateSalt()) {
+            if (!generateSalt(entropy)) {
                 return ResponseCode::SYSTEM_ERROR;
             }
-            response = writeMasterKey(pw);
+            response = writeMasterKey(pw, entropy);
         }
         if (response == ResponseCode::NO_ERROR) {
-            mMasterKey = std::vector<uint8_t>(masterKeyBlob.getValue(),
-                                              masterKeyBlob.getValue() + masterKeyBlob.getLength());
+            memcpy(mMasterKey, masterKeyBlob.getValue(), MASTER_KEY_SIZE_BYTES);
             setupMasterKeys();
         }
         return response;
@@ -234,7 +227,7 @@ bool UserState::reset() {
     return true;
 }
 
-void UserState::generateKeyFromPassword(std::vector<uint8_t>& key, const android::String8& pw,
+void UserState::generateKeyFromPassword(uint8_t* key, ssize_t keySize, const android::String8& pw,
                                         uint8_t* salt) {
     size_t saltSize;
     if (salt != NULL) {
@@ -246,32 +239,26 @@ void UserState::generateKeyFromPassword(std::vector<uint8_t>& key, const android
         saltSize = sizeof("keystore");
     }
 
-    const EVP_MD* digest = EVP_sha256();
-
-    // SHA1 was used prior to increasing the key size
-    if (key.size() == SHA1_DIGEST_SIZE_BYTES) {
-        digest = EVP_sha1();
-    }
-
-    PKCS5_PBKDF2_HMAC(reinterpret_cast<const char*>(pw.string()), pw.length(), salt, saltSize, 8192,
-                      digest, key.size(), key.data());
+    PKCS5_PBKDF2_HMAC_SHA1(reinterpret_cast<const char*>(pw.string()), pw.length(), salt, saltSize,
+                           8192, keySize, key);
 }
 
-bool UserState::generateSalt() {
-    return RAND_bytes(mSalt, sizeof(mSalt));
+bool UserState::generateSalt(Entropy* entropy) {
+    return entropy->generate_random_data(mSalt, sizeof(mSalt));
 }
 
-bool UserState::generateMasterKey() {
-    mMasterKey.resize(MASTER_KEY_SIZE_BYTES);
-    if (!RAND_bytes(mMasterKey.data(), mMasterKey.size())) {
+bool UserState::generateMasterKey(Entropy* entropy) {
+    if (!entropy->generate_random_data(mMasterKey, sizeof(mMasterKey))) {
         return false;
     }
-    if (!generateSalt()) {
+    if (!generateSalt(entropy)) {
         return false;
     }
     return true;
 }
 
 void UserState::setupMasterKeys() {
+    AES_set_encrypt_key(mMasterKey, MASTER_KEY_SIZE_BITS, &mMasterKeyEncryption);
+    AES_set_decrypt_key(mMasterKey, MASTER_KEY_SIZE_BITS, &mMasterKeyDecryption);
     setState(STATE_NO_ERROR);
 }

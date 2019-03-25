@@ -15,52 +15,30 @@
 LOCAL_PATH := $(call my-dir)
 
 include $(CLEAR_VARS)
-
-LOCAL_MODULE := libkeystore-engine
-
-LOCAL_SRC_FILES := \
-	android_engine.cpp \
-	keystore_backend_binder.cpp
-
+ifeq ($(USE_32_BIT_KEYSTORE), true)
+LOCAL_MULTILIB := 32
+endif
+LOCAL_MODULE := keystore.default
+LOCAL_MODULE_RELATIVE_PATH := hw
+LOCAL_SRC_FILES := module.cpp
+LOCAL_C_INCLUDES := system/security/keystore
+LOCAL_CFLAGS = -fvisibility=hidden -Wall -Werror
+LOCAL_SHARED_LIBRARIES := libcrypto liblog libkeystore_binder libsoftkeymaster
 LOCAL_MODULE_TAGS := optional
-LOCAL_CFLAGS := -fvisibility=hidden -Wall -Werror
-
-LOCAL_SHARED_LIBRARIES += \
-	libbinder \
-	libcrypto \
-	libcutils \
-	libhidlbase \
-	libkeystore_binder \
-	liblog \
-	libutils
-
 LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
-
 include $(BUILD_SHARED_LIBRARY)
 
 include $(CLEAR_VARS)
-
-# This builds a variant of libkeystore-engine that uses a HIDL HAL
-# owned by the WiFi user to perform signing operations.
-LOCAL_MODULE := libkeystore-engine-wifi-hidl
-
-LOCAL_SRC_FILES := \
-	android_engine.cpp \
-	keystore_backend_hidl.cpp
-
+ifeq ($(USE_32_BIT_KEYSTORE), true)
+LOCAL_MULTILIB := 32
+endif
+LOCAL_MODULE := libsoftkeymaster
+LOCAL_SRC_FILES := keymaster_openssl.cpp
+LOCAL_C_INCLUDES := system/security/keystore \
+	$(LOCAL_PATH)/include
+LOCAL_CFLAGS = -fvisibility=hidden -Wall -Werror
+LOCAL_SHARED_LIBRARIES := libcrypto liblog libkeystore_binder
 LOCAL_MODULE_TAGS := optional
-LOCAL_CFLAGS := -fvisibility=hidden -Wall -Werror -DBACKEND_WIFI_HIDL
-
-LOCAL_SHARED_LIBRARIES += \
-	android.system.wifi.keystore@1.0 \
-	libcrypto \
-	liblog \
-	libhidlbase \
-	libhidltransport \
-	libcutils \
-	libutils
-
+LOCAL_EXPORT_C_INCLUDE_DIRS := $(LOCAL_PATH)/include
 LOCAL_ADDITIONAL_DEPENDENCIES := $(LOCAL_PATH)/Android.mk
-LOCAL_VENDOR_MODULE := true
-
 include $(BUILD_SHARED_LIBRARY)
