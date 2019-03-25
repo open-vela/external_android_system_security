@@ -70,10 +70,6 @@ KeymasterWorker::KeymasterWorker(sp<Keymaster> keymasterDevice, KeyStore* keySto
     if (keymasterDevice_) keymasterDevice_->halVersion();
 }
 
-void KeymasterWorker::logIfKeymasterVendorError(ErrorCode ec) const {
-    keymasterDevice_->logIfKeymasterVendorError(ec);
-}
-
 std::tuple<KeyStoreServiceReturnCode, Blob>
 KeymasterWorker::upgradeKeyBlob(const LockedKeyBlobEntry& lockedEntry,
                                 const AuthorizationSet& params) {
@@ -102,7 +98,6 @@ KeymasterWorker::upgradeKeyBlob(const LockedKeyBlobEntry& lockedEntry,
     auto& dev = keymasterDevice_;
 
     auto hidlCb = [&](ErrorCode ret, const ::std::vector<uint8_t>& upgradedKeyBlob) {
-        dev->logIfKeymasterVendorError(ret);
         error = ret;
         if (!error.isOk()) {
             if (error == ErrorCode::INVALID_KEY_BLOB) {
@@ -133,7 +128,7 @@ KeymasterWorker::upgradeKeyBlob(const LockedKeyBlobEntry& lockedEntry,
     };
 
     KeyStoreServiceReturnCode error2;
-    error2 = KS_HANDLE_HIDL_ERROR(dev, dev->upgradeKey(hidlKey, params.hidl_data(), hidlCb));
+    error2 = KS_HANDLE_HIDL_ERROR(dev->upgradeKey(hidlKey, params.hidl_data(), hidlCb));
     if (!error2.isOk()) {
         return error = error2, result;
     }
@@ -176,7 +171,6 @@ KeymasterWorker::createKeyCharacteristicsCache(const LockedKeyBlobEntry& lockedE
     }
 
     auto hidlCb = [&](ErrorCode ret, const KeyCharacteristics& keyCharacteristics) {
-        dev->logIfKeymasterVendorError(ret);
         error = ret;
         if (!error.isOk()) {
             if (error == ErrorCode::INVALID_KEY_BLOB) {
@@ -213,7 +207,7 @@ KeymasterWorker::createKeyCharacteristicsCache(const LockedKeyBlobEntry& lockedE
         // this updates the key characteristics cache file to the new format or creates one in
         // in the first place
         rc = KS_HANDLE_HIDL_ERROR(
-            dev, dev->getKeyCharacteristics(hidlKeyBlob, clientId, appData, hidlCb));
+            dev->getKeyCharacteristics(hidlKeyBlob, clientId, appData, hidlCb));
         if (!rc.isOk()) {
             return result;
         }
@@ -234,7 +228,7 @@ KeymasterWorker::createKeyCharacteristicsCache(const LockedKeyBlobEntry& lockedE
             auto upgradedHidlKeyBlob = blob2hidlVec(keyBlob);
 
             rc = KS_HANDLE_HIDL_ERROR(
-                dev, dev->getKeyCharacteristics(upgradedHidlKeyBlob, clientId, appData, hidlCb));
+                dev->getKeyCharacteristics(upgradedHidlKeyBlob, clientId, appData, hidlCb));
             if (!rc.isOk()) {
                 return result;
             }
@@ -305,7 +299,7 @@ KeyStoreServiceReturnCode KeymasterWorker::abort(const sp<IBinder>& token) {
     auto op = operationMap_.removeOperation(token, false /* wasOpSuccessful */);
     if (op) {
         keyStore_->getAuthTokenTable().MarkCompleted(op->handle);
-        return KS_HANDLE_HIDL_ERROR(keymasterDevice_, keymasterDevice_->abort(op->handle));
+        return KS_HANDLE_HIDL_ERROR(keymasterDevice_->abort(op->handle));
     } else {
         return ErrorCode::INVALID_OPERATION_HANDLE;
     }
@@ -382,7 +376,7 @@ void KeymasterWorker::begin(LockedKeyBlobEntry lockedEntry, sp<IBinder> appToken
 
         // Add entropy to the device first.
         if (entropy.size()) {
-            rc = KS_HANDLE_HIDL_ERROR(dev, dev->addRngEntropy(entropy));
+            rc = KS_HANDLE_HIDL_ERROR(dev->addRngEntropy(entropy));
             if (!rc.isOk()) {
                 return worker_cb(operationFailed(rc));
             }
@@ -420,7 +414,6 @@ void KeymasterWorker::begin(LockedKeyBlobEntry lockedEntry, sp<IBinder> appToken
 
         auto hidlCb = [&](ErrorCode ret, const hidl_vec<KeyParameter>& outParams,
                           uint64_t operationHandle) {
-            dev->logIfKeymasterVendorError(ret);
             result.resultCode = ret;
             if (!result.resultCode.isOk()) {
                 if (result.resultCode == ErrorCode::INVALID_KEY_BLOB) {
@@ -433,8 +426,8 @@ void KeymasterWorker::begin(LockedKeyBlobEntry lockedEntry, sp<IBinder> appToken
         };
 
         do {
-            rc = KS_HANDLE_HIDL_ERROR(dev, dev->begin(purpose, blob2hidlVec(keyBlob),
-                                                      opParams.hidl_data(), authToken, hidlCb));
+            rc = KS_HANDLE_HIDL_ERROR(dev->begin(purpose, blob2hidlVec(keyBlob),
+                                                 opParams.hidl_data(), authToken, hidlCb));
             if (!rc.isOk()) {
                 LOG(ERROR) << "Got error " << rc << " from begin()";
                 return worker_cb(operationFailed(ResponseCode::SYSTEM_ERROR));
@@ -446,8 +439,8 @@ void KeymasterWorker::begin(LockedKeyBlobEntry lockedEntry, sp<IBinder> appToken
                     return worker_cb(operationFailed(rc));
                 }
 
-                rc = KS_HANDLE_HIDL_ERROR(dev, dev->begin(purpose, blob2hidlVec(keyBlob),
-                                                          opParams.hidl_data(), authToken, hidlCb));
+                rc = KS_HANDLE_HIDL_ERROR(dev->begin(purpose, blob2hidlVec(keyBlob),
+                                                     opParams.hidl_data(), authToken, hidlCb));
                 if (!rc.isOk()) {
                     LOG(ERROR) << "Got error " << rc << " from begin()";
                     return worker_cb(operationFailed(ResponseCode::SYSTEM_ERROR));
@@ -564,7 +557,7 @@ void KeymasterWorker::update(sp<IBinder> token, AuthorizationSet params, hidl_ve
         Finalize abort_operation_in_case_of_error([&] {
             operationMap_.removeOperation(token, false);
             keyStore_->getAuthTokenTable().MarkCompleted(op->handle);
-            KS_HANDLE_HIDL_ERROR(keymasterDevice_, keymasterDevice_->abort(op->handle));
+            KS_HANDLE_HIDL_ERROR(keymasterDevice_->abort(op->handle));
         });
 
         rc = getOperationAuthTokenIfNeeded(op);
@@ -584,7 +577,6 @@ void KeymasterWorker::update(sp<IBinder> token, AuthorizationSet params, hidl_ve
         auto hidlCb = [&](ErrorCode ret, uint32_t inputConsumed,
                           const hidl_vec<KeyParameter>& outParams,
                           const ::std::vector<uint8_t>& output) {
-            op->device->logIfKeymasterVendorError(ret);
             result.resultCode = ret;
             if (result.resultCode.isOk()) {
                 result.inputConsumed = inputConsumed;
@@ -593,8 +585,7 @@ void KeymasterWorker::update(sp<IBinder> token, AuthorizationSet params, hidl_ve
             }
         };
 
-        rc = KS_HANDLE_HIDL_ERROR(op->device,
-                                  op->device->update(op->handle, params.hidl_data(), data,
+        rc = KS_HANDLE_HIDL_ERROR(op->device->update(op->handle, params.hidl_data(), data,
                                                      op->authToken, op->verificationToken, hidlCb));
 
         // just a reminder: on success result->resultCode was set in the callback. So we only
@@ -643,8 +634,7 @@ void KeymasterWorker::finish(sp<IBinder> token, AuthorizationSet params, hidl_ve
         Finalize abort_operation_in_case_of_error([&] {
             operationMap_.removeOperation(token, finished && rc.isOk());
             keyStore_->getAuthTokenTable().MarkCompleted(op->handle);
-            if (!finished)
-                KS_HANDLE_HIDL_ERROR(keymasterDevice_, keymasterDevice_->abort(op->handle));
+            if (!finished) KS_HANDLE_HIDL_ERROR(keymasterDevice_->abort(op->handle));
         });
 
         if (!checkAllowedOperationParams(params.begin(), params.end())) {
@@ -675,7 +665,7 @@ void KeymasterWorker::finish(sp<IBinder> token, AuthorizationSet params, hidl_ve
         if (!rc.isOk()) return worker_cb(operationFailed(rc));
 
         if (entropy.size()) {
-            rc = KS_HANDLE_HIDL_ERROR(op->device, op->device->addRngEntropy(entropy));
+            rc = KS_HANDLE_HIDL_ERROR(op->device->addRngEntropy(entropy));
             if (!rc.isOk()) {
                 return worker_cb(operationFailed(rc));
             }
@@ -684,7 +674,6 @@ void KeymasterWorker::finish(sp<IBinder> token, AuthorizationSet params, hidl_ve
         OperationResult result;
         auto hidlCb = [&](ErrorCode ret, const hidl_vec<KeyParameter>& outParams,
                           const ::std::vector<uint8_t>& output) {
-            op->device->logIfKeymasterVendorError(ret);
             result.resultCode = ret;
             if (result.resultCode.isOk()) {
                 result.outParams = outParams;
@@ -692,9 +681,9 @@ void KeymasterWorker::finish(sp<IBinder> token, AuthorizationSet params, hidl_ve
             }
         };
 
-        rc = KS_HANDLE_HIDL_ERROR(op->device, op->device->finish(op->handle, params.hidl_data(),
-                                                                 input, signature, op->authToken,
-                                                                 op->verificationToken, hidlCb));
+        rc = KS_HANDLE_HIDL_ERROR(op->device->finish(op->handle, params.hidl_data(), input,
+                                                     signature, op->authToken,
+                                                     op->verificationToken, hidlCb));
 
         if (rc.isOk()) {
             // inform the finalizer that the finish call went through
@@ -720,14 +709,11 @@ void KeymasterWorker::verifyAuthorization(uint64_t challenge, hidl_vec<KeyParame
                         CAPTURE_MOVE(worker_cb)]() {
         KeyStoreServiceReturnCode error;
         VerificationToken verificationToken;
-        KeyStoreServiceReturnCode rc = KS_HANDLE_HIDL_ERROR(
-            keymasterDevice_,
-            keymasterDevice_->verifyAuthorization(
-                challenge, params, token, [&](ErrorCode ret, const VerificationToken& vToken) {
-                    keymasterDevice_->logIfKeymasterVendorError(ret);
-                    error = ret;
-                    verificationToken = vToken;
-                }));
+        KeyStoreServiceReturnCode rc = KS_HANDLE_HIDL_ERROR(keymasterDevice_->verifyAuthorization(
+            challenge, params, token, [&](ErrorCode error_, const VerificationToken& vToken) {
+                error = error_;
+                verificationToken = vToken;
+            }));
         worker_cb(rc.isOk() ? error : rc, std::move(token), std::move(verificationToken));
     });
 }
@@ -753,7 +739,7 @@ void KeymasterWorker::generateKey(LockedKeyBlobEntry lockedEntry, hidl_vec<KeyPa
     Worker::addRequest([this, CAPTURE_MOVE(lockedEntry), CAPTURE_MOVE(keyParams),
                         CAPTURE_MOVE(entropy), CAPTURE_MOVE(worker_cb), flags]() mutable {
         KeyStoreServiceReturnCode rc =
-            KS_HANDLE_HIDL_ERROR(keymasterDevice_, keymasterDevice_->addRngEntropy(entropy));
+            KS_HANDLE_HIDL_ERROR(keymasterDevice_->addRngEntropy(entropy));
         if (!rc.isOk()) {
             return worker_cb(rc, {});
         }
@@ -771,7 +757,6 @@ void KeymasterWorker::generateKey(LockedKeyBlobEntry lockedEntry, hidl_vec<KeyPa
         KeyStoreServiceReturnCode error;
         auto hidl_cb = [&](ErrorCode ret, const hidl_vec<uint8_t>& hidlKeyBlob,
                            const KeyCharacteristics& keyCharacteristics) {
-            keymasterDevice_->logIfKeymasterVendorError(ret);
             error = ret;
             if (!error.isOk()) {
                 return;
@@ -803,8 +788,7 @@ void KeymasterWorker::generateKey(LockedKeyBlobEntry lockedEntry, hidl_vec<KeyPa
             error = keyStore_->put(lockedEntry, std::move(keyBlob), std::move(keyCharBlob));
         };
 
-        rc = KS_HANDLE_HIDL_ERROR(keymasterDevice_,
-                                  keymasterDevice_->generateKey(keyParams, hidl_cb));
+        rc = KS_HANDLE_HIDL_ERROR(keymasterDevice_->generateKey(keyParams, hidl_cb));
         if (!rc.isOk()) {
             return worker_cb(rc, {});
         }
@@ -875,7 +859,6 @@ void KeymasterWorker::importKey(LockedKeyBlobEntry lockedEntry, hidl_vec<KeyPara
         KeyStoreServiceReturnCode error;
         auto hidl_cb = [&](ErrorCode ret, const hidl_vec<uint8_t>& hidlKeyBlob,
                            const KeyCharacteristics& keyCharacteristics) {
-            keymasterDevice_->logIfKeymasterVendorError(ret);
             error = ret;
             if (!error.isOk()) {
                 LOG(INFO) << "importKey failed";
@@ -909,7 +892,7 @@ void KeymasterWorker::importKey(LockedKeyBlobEntry lockedEntry, hidl_vec<KeyPara
         };
 
         KeyStoreServiceReturnCode rc = KS_HANDLE_HIDL_ERROR(
-            keymasterDevice_, keymasterDevice_->importKey(keyParams, keyFormat, keyData, hidl_cb));
+            keymasterDevice_->importKey(keyParams, keyFormat, keyData, hidl_cb));
         if (!rc.isOk()) {
             return worker_cb(rc, {});
         }
@@ -966,7 +949,6 @@ void KeymasterWorker::importWrappedKey(LockedKeyBlobEntry wrappingLockedEntry,
 
         auto hidlCb = [&](ErrorCode ret, const hidl_vec<uint8_t>& hidlKeyBlob,
                           const KeyCharacteristics& keyCharacteristics) {
-            keymasterDevice_->logIfKeymasterVendorError(ret);
             error = ret;
             if (!error.isOk()) {
                 return;
@@ -990,10 +972,9 @@ void KeymasterWorker::importWrappedKey(LockedKeyBlobEntry wrappingLockedEntry,
             error = keyStore_->put(wrapppedLockedEntry, std::move(keyBlob), std::move(keyCharBlob));
         };
 
-        KeyStoreServiceReturnCode rc = KS_HANDLE_HIDL_ERROR(
-            keymasterDevice_, keymasterDevice_->importWrappedKey(
-                                  wrappedKeyData, hidlWrappingKey, maskingKey, unwrappingParams,
-                                  passwordSid, biometricSid, hidlCb));
+        KeyStoreServiceReturnCode rc = KS_HANDLE_HIDL_ERROR(keymasterDevice_->importWrappedKey(
+            wrappedKeyData, hidlWrappingKey, maskingKey, unwrappingParams, passwordSid,
+            biometricSid, hidlCb));
 
         // possible hidl error
         if (!rc.isOk()) {
@@ -1008,10 +989,9 @@ void KeymasterWorker::importWrappedKey(LockedKeyBlobEntry wrappingLockedEntry,
 
             auto upgradedHidlKeyBlob = blob2hidlVec(wrappingBlob);
 
-            rc = KS_HANDLE_HIDL_ERROR(keymasterDevice_,
-                                      keymasterDevice_->importWrappedKey(
-                                          wrappedKeyData, upgradedHidlKeyBlob, maskingKey,
-                                          unwrappingParams, passwordSid, biometricSid, hidlCb));
+            rc = KS_HANDLE_HIDL_ERROR(keymasterDevice_->importWrappedKey(
+                wrappedKeyData, upgradedHidlKeyBlob, maskingKey, unwrappingParams, passwordSid,
+                biometricSid, hidlCb));
             if (!rc.isOk()) {
                 error = rc;
             }
@@ -1031,7 +1011,6 @@ void KeymasterWorker::exportKey(LockedKeyBlobEntry lockedEntry, KeyFormat export
         ExportResult result;
         auto hidlCb = [&](ErrorCode ret,
                           const ::android::hardware::hidl_vec<uint8_t>& keyMaterial) {
-            keymasterDevice_->logIfKeymasterVendorError(ret);
             result.resultCode = ret;
             if (!result.resultCode.isOk()) {
                 if (result.resultCode == ErrorCode::INVALID_KEY_BLOB) {
@@ -1042,7 +1021,6 @@ void KeymasterWorker::exportKey(LockedKeyBlobEntry lockedEntry, KeyFormat export
             result.exportData = keyMaterial;
         };
         KeyStoreServiceReturnCode rc = KS_HANDLE_HIDL_ERROR(
-            keymasterDevice_,
             keymasterDevice_->exportKey(exportFormat, key, clientId, appData, hidlCb));
 
         // Overwrite result->resultCode only on HIDL error. Otherwise we want the result set in the
@@ -1066,8 +1044,7 @@ void KeymasterWorker::exportKey(LockedKeyBlobEntry lockedEntry, KeyFormat export
 
             auto upgradedHidlKeyBlob = blob2hidlVec(keyBlob);
 
-            rc = KS_HANDLE_HIDL_ERROR(keymasterDevice_,
-                                      keymasterDevice_->exportKey(exportFormat, upgradedHidlKeyBlob,
+            rc = KS_HANDLE_HIDL_ERROR(keymasterDevice_->exportKey(exportFormat, upgradedHidlKeyBlob,
                                                                   clientId, appData, hidlCb));
             if (!rc.isOk()) {
                 result.resultCode = rc;
@@ -1081,9 +1058,20 @@ void KeymasterWorker::attestKey(hidl_vec<uint8_t> keyToAttest, hidl_vec<KeyParam
     addRequest(&Keymaster::attestKey, std::move(worker_cb), std::move(keyToAttest),
                std::move(attestParams));
 }
+void KeymasterWorker::upgradeKey(hidl_vec<uint8_t> keyBlobToUpgrade,
+                                 hidl_vec<KeyParameter> upgradeParams, upgradeKey_cb _hidl_cb) {
+    addRequest(&Keymaster::upgradeKey, std::move(_hidl_cb), std::move(keyBlobToUpgrade),
+               std::move(upgradeParams));
+}
 
 void KeymasterWorker::deleteKey(hidl_vec<uint8_t> keyBlob, deleteKey_cb _hidl_cb) {
     addRequest(&Keymaster::deleteKey, std::move(_hidl_cb), std::move(keyBlob));
+}
+void KeymasterWorker::deleteAllKeys(deleteAllKeys_cb _hidl_cb) {
+    addRequest(&Keymaster::deleteAllKeys, std::move(_hidl_cb));
+}
+void KeymasterWorker::destroyAttestationIds(destroyAttestationIds_cb _hidl_cb) {
+    addRequest(&Keymaster::destroyAttestationIds, move(_hidl_cb));
 }
 
 void KeymasterWorker::binderDied(android::wp<IBinder> who) {
