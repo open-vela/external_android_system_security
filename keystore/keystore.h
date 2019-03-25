@@ -17,57 +17,47 @@
 #ifndef KEYSTORE_KEYSTORE_H_
 #define KEYSTORE_KEYSTORE_H_
 
-#include <android/hardware/keymaster/3.0/IKeymasterDevice.h>
-#include <keymasterV4_0/Keymaster.h>
-#include <utils/Vector.h>
-
-#include <keystore/keymaster_types.h>
-
-#include "blob.h"
-#include "grant_store.h"
 #include "user_state.h"
 
-namespace keystore {
+#include <android/hardware/keymaster/3.0/IKeymasterDevice.h>
 
-using ::android::sp;
-using keymaster::support::Keymaster;
+#include <utils/Vector.h>
 
-class KeymasterDevices : public std::array<sp<Keymaster>, 3> {
-  public:
-    sp<Keymaster>& operator[](SecurityLevel secLevel);
-    sp<Keymaster> operator[](SecurityLevel secLevel) const;
-};
+#include "blob.h"
+#include "include/keystore/keymaster_tags.h"
+
+typedef struct {
+    uint32_t uid;
+    const uint8_t* filename;
+} grant_t;
+
+using ::keystore::NullOr;
 
 class KeyStore {
+    typedef ::android::sp<::android::hardware::keymaster::V3_0::IKeymasterDevice> km_device_t;
+
   public:
-    KeyStore(const KeymasterDevices& kmDevices,
-             SecurityLevel minimalAllowedSecurityLevelForNewKeys);
+    KeyStore(Entropy* entropy, const km_device_t& device, const km_device_t& fallback,
+             bool allowNewFallback);
     ~KeyStore();
 
-    sp<Keymaster> getDevice(SecurityLevel securityLevel) const { return mKmDevices[securityLevel]; }
+    km_device_t& getDevice() { return mDevice; }
 
-    std::pair<sp<Keymaster>, SecurityLevel> getMostSecureDevice() const {
-        SecurityLevel level = SecurityLevel::STRONGBOX;
-        do {
-            if (mKmDevices[level].get()) {
-                return {mKmDevices[level], level};
-            }
-            level = static_cast<SecurityLevel>(static_cast<uint32_t>(level) - 1);
-        } while (level != SecurityLevel::SOFTWARE);
-        return {nullptr, SecurityLevel::SOFTWARE};
-    }
-
-    sp<Keymaster> getFallbackDevice() const {
+    NullOr<km_device_t&> getFallbackDevice() {
         // we only return the fallback device if the creation of new fallback key blobs is
         // allowed. (also see getDevice below)
         if (mAllowNewFallback) {
-            return mKmDevices[SecurityLevel::SOFTWARE];
+            return mFallbackDevice;
         } else {
-            return nullptr;
+            return {};
         }
     }
 
-    sp<Keymaster> getDevice(const Blob& blob) { return mKmDevices[blob.getSecurityLevel()]; }
+    km_device_t& getDevice(const Blob& blob) {
+        // We return a device, based on the nature of the blob to provide backward
+        // compatibility with old key blobs generated using the fallback device.
+        return blob.isFallback() ? mFallbackDevice : mDevice;
+    }
 
     ResponseCode initialize();
 
@@ -85,7 +75,7 @@ class KeyStore {
     android::String8 getKeyNameForUidWithDir(const android::String8& keyName, uid_t uid,
                                              const BlobType type);
     NullOr<android::String8> getBlobFileNameIfExists(const android::String8& alias, uid_t uid,
-                                                     const BlobType type);
+                                                    const BlobType type);
 
     /*
      * Delete entries owned by userId. If keepUnencryptedEntries is true
@@ -103,9 +93,11 @@ class KeyStore {
     ResponseCode list(const android::String8& prefix, android::Vector<android::String16>* matches,
                       uid_t userId);
 
-    std::string addGrant(const char* alias, uid_t granterUid, uid_t granteeUid);
-    bool removeGrant(const char* alias, const uid_t granterUid, const uid_t granteeUid);
-    void removeAllGrantsToUid(const uid_t granteeUid);
+    void addGrant(const char* filename, uid_t granteeUid);
+    bool removeGrant(const char* filename, uid_t granteeUid);
+    bool hasGrant(const char* filename, const uid_t uid) const {
+        return getGrant(filename, uid) != NULL;
+    }
 
     ResponseCode importKey(const uint8_t* key, size_t keyLen, const char* filename, uid_t userId,
                            int32_t flags);
@@ -136,21 +128,24 @@ class KeyStore {
     const UserState* getUserStateByUid(uid_t uid) const;
 
   private:
-    static const char* kOldMasterKey;
-    static const char* kMetaDataFile;
-    static const android::String16 kRsaKeyType;
-    static const android::String16 kEcKeyType;
+    static const char* sOldMasterKey;
+    static const char* sMetaDataFile;
+    static const android::String16 sRSAKeyType;
+    Entropy* mEntropy;
 
-    KeymasterDevices mKmDevices;
+    km_device_t mDevice;
+    km_device_t mFallbackDevice;
     bool mAllowNewFallback;
 
     android::Vector<UserState*> mMasterKeys;
 
-    ::keystore::GrantStore mGrants;
+    android::Vector<grant_t*> mGrants;
 
     typedef struct { uint32_t version; } keystore_metadata_t;
 
     keystore_metadata_t mMetaData;
+
+    const grant_t* getGrant(const char* filename, uid_t uid) const;
 
     /**
      * Upgrade the key from the current version to whatever is newest.
@@ -170,7 +165,5 @@ class KeyStore {
 
     bool upgradeKeystore();
 };
-
-}  // namespace keystore
 
 #endif  // KEYSTORE_KEYSTORE_H_

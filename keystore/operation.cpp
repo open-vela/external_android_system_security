@@ -20,29 +20,47 @@
 #include <algorithm>
 
 namespace keystore {
+using namespace android;
 
 OperationMap::OperationMap(IBinder::DeathRecipient* deathRecipient)
     : mDeathRecipient(deathRecipient) {}
 
 sp<IBinder> OperationMap::addOperation(uint64_t handle, uint64_t keyid, KeyPurpose purpose,
-                                       const sp<Keymaster>& dev, const sp<IBinder>& appToken,
-                                       KeyCharacteristics&& characteristics,
-                                       const hidl_vec<KeyParameter>& params, bool pruneable) {
-    sp<IBinder> token = new ::android::BBinder();
-    mMap.emplace(token, Operation(handle, keyid, purpose, dev, std::move(characteristics), appToken,
-                                  params));
-    if (pruneable) mLru.push_back(token);
-    if (mAppTokenMap.find(appToken) == mAppTokenMap.end()) appToken->linkToDeath(mDeathRecipient);
+                                       const OperationMap::km_device_t& dev,
+                                       const sp<IBinder>& appToken,
+                                       KeyCharacteristics&& characteristics, bool pruneable) {
+    sp<IBinder> token = new BBinder();
+    mMap[token] = Operation(handle, keyid, purpose, dev, std::move(characteristics), appToken);
+    if (pruneable) {
+        mLru.push_back(token);
+    }
+    if (mAppTokenMap.find(appToken) == mAppTokenMap.end()) {
+        appToken->linkToDeath(mDeathRecipient);
+    }
     mAppTokenMap[appToken].push_back(token);
     return token;
 }
 
-NullOr<const Operation&> OperationMap::getOperation(const sp<IBinder>& token) {
+bool OperationMap::getOperation(const sp<IBinder>& token, uint64_t* outHandle, uint64_t* outKeyid,
+                                KeyPurpose* outPurpose, km_device_t* outDevice,
+                                const KeyCharacteristics** outCharacteristics) {
+    if (!outHandle || !outDevice) {
+        return false;
+    }
     auto entry = mMap.find(token);
-    if (entry == mMap.end()) return {};
-
+    if (entry == mMap.end()) {
+        return false;
+    }
     updateLru(token);
-    return entry->second;
+
+    *outHandle = entry->second.handle;
+    *outKeyid = entry->second.keyid;
+    *outPurpose = entry->second.purpose;
+    *outDevice = entry->second.device;
+    if (outCharacteristics) {
+        *outCharacteristics = &entry->second.characteristics;
+    }
+    return true;
 }
 
 void OperationMap::updateLru(const sp<IBinder>& token) {
@@ -53,18 +71,19 @@ void OperationMap::updateLru(const sp<IBinder>& token) {
     }
 }
 
-NullOr<Operation> OperationMap::removeOperation(const sp<IBinder>& token, bool wasSuccessful) {
+bool OperationMap::removeOperation(const sp<IBinder>& token) {
     auto entry = mMap.find(token);
-    if (entry == mMap.end()) return {};
-
-    Operation op = std::move(entry->second);
-    uploadOpAsProto(op, wasSuccessful);
+    if (entry == mMap.end()) {
+        return false;
+    }
+    sp<IBinder> appToken = entry->second.appToken;
     mMap.erase(entry);
-
     auto lruEntry = std::find(mLru.begin(), mLru.end(), token);
-    if (lruEntry != mLru.end()) mLru.erase(lruEntry);
-    removeOperationTracking(token, op.appToken);
-    return op;
+    if (lruEntry != mLru.end()) {
+        mLru.erase(lruEntry);
+    }
+    removeOperationTracking(token, appToken);
+    return true;
 }
 
 void OperationMap::removeOperationTracking(const sp<IBinder>& token, const sp<IBinder>& appToken) {
@@ -83,7 +102,7 @@ void OperationMap::removeOperationTracking(const sp<IBinder>& token, const sp<IB
 }
 
 bool OperationMap::hasPruneableOperation() const {
-    return !mLru.empty();
+    return mLru.size() != 0;
 }
 
 size_t OperationMap::getPruneableOperationCount() const {
@@ -91,29 +110,49 @@ size_t OperationMap::getPruneableOperationCount() const {
 }
 
 sp<IBinder> OperationMap::getOldestPruneableOperation() {
-    if (!hasPruneableOperation()) return sp<IBinder>(nullptr);
-    return mLru.front();
+    if (!hasPruneableOperation()) {
+        return sp<IBinder>(NULL);
+    }
+    return mLru[0];
 }
 
-void OperationMap::setOperationAuthToken(const sp<IBinder>& token, HardwareAuthToken authToken) {
+bool OperationMap::getOperationAuthToken(const sp<IBinder>& token,
+                                         const HardwareAuthToken** outToken) {
     auto entry = mMap.find(token);
-    if (entry == mMap.end()) return;
-
-    entry->second.authToken = std::move(authToken);
+    if (entry == mMap.end()) {
+        return false;
+    }
+    *outToken = entry->second.authToken.get();
+    return true;
 }
 
-void OperationMap::setOperationVerificationToken(const sp<IBinder>& token,
-                                                 VerificationToken verificationToken) {
+bool OperationMap::setOperationAuthToken(const sp<IBinder>& token,
+                                         const HardwareAuthToken* authToken) {
     auto entry = mMap.find(token);
-    if (entry == mMap.end()) return;
-
-    entry->second.verificationToken = std::move(verificationToken);
+    if (entry == mMap.end()) {
+        return false;
+    }
+    entry->second.authToken.reset(new HardwareAuthToken);
+    *entry->second.authToken = *authToken;
+    return true;
 }
 
 std::vector<sp<IBinder>> OperationMap::getOperationsForToken(const sp<IBinder>& appToken) {
     auto appEntry = mAppTokenMap.find(appToken);
-    if (appEntry == mAppTokenMap.end()) return {};
-    return appEntry->second;
+    if (appEntry != mAppTokenMap.end()) {
+        return appEntry->second;
+    } else {
+        return std::vector<sp<IBinder>>();
+    }
 }
 
-}  // namespace keystore
+OperationMap::Operation::Operation(uint64_t handle_, uint64_t keyid_, KeyPurpose purpose_,
+                                   const OperationMap::km_device_t& device_,
+                                   KeyCharacteristics&& characteristics_, sp<IBinder> appToken_)
+    : handle(handle_), keyid(keyid_), purpose(purpose_), device(device_),
+      characteristics(characteristics_), appToken(appToken_) {}
+
+OperationMap::Operation::Operation()
+    : handle(0), keyid(0), device(nullptr), characteristics(), appToken(nullptr) {}
+
+}  // namespace android

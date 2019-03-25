@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <keystore/keymaster_types.h>
+#include <keystore/authorization_set.h>
 
 #include <assert.h>
 #include <stddef.h>
