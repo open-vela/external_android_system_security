@@ -18,8 +18,8 @@
 
 #include "permissions.h"
 
+#include <cutils/log.h>
 #include <cutils/sockets.h>
-#include <log/log.h>
 #include <private/android_filesystem_config.h>
 
 #include <selinux/android.h>
@@ -54,16 +54,9 @@ struct user_euid {
     uid_t euid;
 };
 
-user_euid user_euids[] = {{AID_VPN, AID_SYSTEM},
-                          {AID_WIFI, AID_SYSTEM},
-                          {AID_ROOT, AID_SYSTEM},
-                          {AID_WIFI, AID_KEYSTORE},
-                          {AID_KEYSTORE, AID_WIFI},
-
-#ifdef GRANT_ROOT_ALL_PERMISSIONS
-                          // Allow VTS tests to act on behalf of the wifi user
-                          {AID_WIFI, AID_ROOT}
-#endif
+user_euid user_euids[] = {
+    {AID_VPN, AID_SYSTEM}, {AID_WIFI, AID_SYSTEM}, {AID_ROOT, AID_SYSTEM},
+    {AID_WIFI, AID_KEYSTORE}, {AID_KEYSTORE, AID_WIFI}
 };
 
 struct user_perm {
@@ -75,14 +68,7 @@ static user_perm user_perms[] = {
     {AID_SYSTEM, static_cast<perm_t>((uint32_t)(~0))},
     {AID_VPN, static_cast<perm_t>(P_GET | P_SIGN | P_VERIFY)},
     {AID_WIFI, static_cast<perm_t>(P_GET | P_SIGN | P_VERIFY)},
-    {AID_BLUETOOTH, static_cast<perm_t>(P_GET | P_INSERT | P_DELETE | P_EXIST | P_SIGN | P_VERIFY)},
-
-#ifdef GRANT_ROOT_ALL_PERMISSIONS
-    // Allow VTS tests running as root to perform all operations
-    {AID_ROOT, static_cast<perm_t>((uint32_t)(~0))},
-#else
     {AID_ROOT, static_cast<perm_t>(P_GET)},
-#endif
 };
 
 static const perm_t DEFAULT_PERMS = static_cast<perm_t>(
@@ -133,7 +119,7 @@ int configure_selinux() {
 
 static bool keystore_selinux_check_access(uid_t uid, perm_t perm, pid_t spid) {
     audit_data ad;
-    char* sctx = nullptr;
+    char* sctx = NULL;
     const char* selinux_class = "keystore_key";
     const char* str_perm = get_perm_label(perm);
 
