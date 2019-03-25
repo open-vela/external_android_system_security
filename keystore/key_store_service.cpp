@@ -52,7 +52,7 @@ const char* kTimestampFilePath = "timestamp";
 struct BIGNUM_Delete {
     void operator()(BIGNUM* p) const { BN_free(p); }
 };
-typedef UniquePtr<BIGNUM, BIGNUM_Delete> Unique_BIGNUM;
+typedef std::unique_ptr<BIGNUM, BIGNUM_Delete> Unique_BIGNUM;
 
 bool containsTag(const hidl_vec<KeyParameter>& params, Tag tag) {
     return params.end() != std::find_if(params.begin(), params.end(),
@@ -532,23 +532,22 @@ KeyStoreServiceReturnCode KeyStoreService::get_pubkey(const String16& name,
     return ResponseCode::NO_ERROR;
 }
 
-KeyStoreServiceReturnCode KeyStoreService::grant(const String16& name, int32_t granteeUid) {
+String16 KeyStoreService::grant(const String16& name, int32_t granteeUid) {
     KEYSTORE_SERVICE_LOCK;
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
     auto result = checkBinderPermissionAndKeystoreState(P_GRANT);
     if (!result.isOk()) {
-        return result;
+        return String16();
     }
 
     String8 name8(name);
     String8 filename(mKeyStore->getKeyNameForUidWithDir(name8, callingUid, ::TYPE_ANY));
 
     if (access(filename.string(), R_OK) == -1) {
-        return (errno != ENOENT) ? ResponseCode::SYSTEM_ERROR : ResponseCode::KEY_NOT_FOUND;
+        return String16();
     }
 
-    mKeyStore->addGrant(filename.string(), granteeUid);
-    return ResponseCode::NO_ERROR;
+    return String16(mKeyStore->addGrant(String8(name).string(), callingUid, granteeUid).c_str());
 }
 
 KeyStoreServiceReturnCode KeyStoreService::ungrant(const String16& name, int32_t granteeUid) {
@@ -566,8 +565,8 @@ KeyStoreServiceReturnCode KeyStoreService::ungrant(const String16& name, int32_t
         return (errno != ENOENT) ? ResponseCode::SYSTEM_ERROR : ResponseCode::KEY_NOT_FOUND;
     }
 
-    return mKeyStore->removeGrant(filename.string(), granteeUid) ? ResponseCode::NO_ERROR
-                                                                 : ResponseCode::KEY_NOT_FOUND;
+    return mKeyStore->removeGrant(name8, callingUid, granteeUid) ? ResponseCode::NO_ERROR
+                                                     : ResponseCode::KEY_NOT_FOUND;
 }
 
 int64_t KeyStoreService::getmtime(const String16& name, int32_t uid) {
@@ -677,6 +676,8 @@ KeyStoreServiceReturnCode KeyStoreService::clear_uid(int64_t targetUid64) {
         return ResponseCode::PERMISSION_DENIED;
     }
     ALOGI("clear_uid %" PRId64, targetUid64);
+
+    mKeyStore->removeAllGrantsToUid(targetUid);
 
     String8 prefix = String8::format("%u_", targetUid);
     Vector<String16> aliases;
@@ -833,7 +834,26 @@ KeyStoreService::getKeyCharacteristics(const String16& name, const hidl_vec<uint
 
     KeyStoreServiceReturnCode rc =
         mKeyStore->getKeyForName(&keyBlob, name8, targetUid, TYPE_KEYMASTER_10);
-    if (!rc.isOk()) {
+    if (rc == ResponseCode::UNINITIALIZED) {
+        /*
+         * If we fail reading the blob because the master key is missing we try to retrieve the
+         * key characteristics from the characteristics file. This happens when auth-bound
+         * keys are used after a screen lock has been removed by the user.
+         */
+        rc = mKeyStore->getKeyForName(&keyBlob, name8, targetUid, TYPE_KEY_CHARACTERISTICS);
+        if (!rc.isOk()) {
+            return rc;
+        }
+        AuthorizationSet keyCharacteristics;
+        // TODO write one shot stream buffer to avoid copying (twice here)
+        std::string charBuffer(reinterpret_cast<const char*>(keyBlob.getValue()),
+                               keyBlob.getLength());
+        std::stringstream charStream(charBuffer);
+        keyCharacteristics.Deserialize(&charStream);
+
+        outCharacteristics->softwareEnforced = keyCharacteristics.hidl_data();
+        return rc;
+    } else if (!rc.isOk()) {
         return rc;
     }
 
@@ -1109,12 +1129,15 @@ void KeyStoreService::begin(const sp<IBinder>& appToken, const String16& name, K
     persistedCharacteristics.Subtract(teeEnforced);
     characteristics.softwareEnforced = persistedCharacteristics.hidl_data();
 
-    result->resultCode = getAuthToken(characteristics, 0, purpose, &authToken,
-                                      /*failOnTokenMissing*/ false);
+    auto authResult = getAuthToken(characteristics, 0, purpose, &authToken,
+                                   /*failOnTokenMissing*/ false);
     // If per-operation auth is needed we need to begin the operation and
     // the client will need to authorize that operation before calling
     // update. Any other auth issues stop here.
-    if (!result->resultCode.isOk() && result->resultCode != ResponseCode::OP_AUTH_NEEDED) return;
+    if (!authResult.isOk() && authResult != ResponseCode::OP_AUTH_NEEDED) {
+        result->resultCode = authResult;
+        return;
+    }
 
     addAuthTokenToParams(&opParams, authToken);
 
@@ -1189,6 +1212,7 @@ void KeyStoreService::begin(const sp<IBinder>& appToken, const String16& name, K
         result->handle, keyid, purpose, dev, appToken, std::move(characteristics), pruneable);
     assert(characteristics.teeEnforced.size() == 0);
     assert(characteristics.softwareEnforced.size() == 0);
+    result->token = operationToken;
 
     if (authToken) {
         mOperationMap.setOperationAuthToken(operationToken, authToken);
@@ -1198,8 +1222,11 @@ void KeyStoreService::begin(const sp<IBinder>& appToken, const String16& name, K
     // application should get an auth token using the handle before the
     // first call to update, which will fail if keystore hasn't received the
     // auth token.
-    // All fields but "token" were set in the begin operation's callback.
-    result->token = operationToken;
+    if (result->resultCode == ErrorCode::OK) {
+        result->resultCode = authResult;
+    }
+
+    // Other result fields were set in the begin operation's callback.
 }
 
 void KeyStoreService::update(const sp<IBinder>& token, const hidl_vec<KeyParameter>& params,
@@ -1734,6 +1761,7 @@ KeyStoreServiceReturnCode KeyStoreService::getAuthToken(const KeyCharacteristics
     case AuthTokenTable::AUTH_TOKEN_NOT_FOUND:
     case AuthTokenTable::AUTH_TOKEN_EXPIRED:
     case AuthTokenTable::AUTH_TOKEN_WRONG_SID:
+        ALOGE("getAuthToken failed: %d", err); //STOPSHIP: debug only, to be removed
         return ErrorCode::KEY_USER_NOT_AUTHENTICATED;
     case AuthTokenTable::OP_HANDLE_REQUIRED:
         return failOnTokenMissing ? KeyStoreServiceReturnCode(ErrorCode::KEY_USER_NOT_AUTHENTICATED)
