@@ -17,21 +17,23 @@
 #ifndef KEYSTORE_KEYSTORE_UTILS_H_
 #define KEYSTORE_KEYSTORE_UTILS_H_
 
-#include <cstdint>
-#include <string>
+#include <stdint.h>
+
 #include <vector>
 
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 
+#include <hardware/keymaster_defs.h>
+
 #include <memory>
 
-#include <keystore/keymaster_types.h>
+#include <keystore/authorization_set.h>
+
+#include "blob.h"
 
 size_t readFully(int fd, uint8_t* data, size_t size);
 size_t writeFully(int fd, uint8_t* data, size_t size);
-std::string getContainingDirectory(const std::string& filename);
-void fsyncDirectory(const std::string& path);
 
 void add_legacy_key_authorizations(int keyType, keystore::AuthorizationSet* params);
 
@@ -57,24 +59,14 @@ struct PKCS8_PRIV_KEY_INFO_Delete {
 };
 typedef std::unique_ptr<PKCS8_PRIV_KEY_INFO, PKCS8_PRIV_KEY_INFO_Delete> Unique_PKCS8_PRIV_KEY_INFO;
 
-class Blob;
-
-// Tags for audit logging. Be careful and don't log sensitive data.
-// Should be in sync with frameworks/base/core/java/android/app/admin/SecurityLogTags.logtags
-constexpr int SEC_TAG_KEY_DESTROYED = 210026;
-constexpr int SEC_TAG_KEY_INTEGRITY_VIOLATION = 210032;
-constexpr int SEC_TAG_AUTH_KEY_GENERATED = 210024;
-constexpr int SEC_TAG_KEY_IMPORTED = 210025;
-
-void log_key_integrity_violation(const char* name, uid_t uid);
-
 namespace keystore {
 
-hidl_vec<uint8_t> blob2hidlVec(const Blob& blob);
+inline static hidl_vec<uint8_t> blob2hidlVec(const Blob& blob) {
+    hidl_vec<uint8_t> result;
+    result.setToExternal(const_cast<uint8_t*>(blob.getValue()), blob.getLength());
+    return result;
+}
 
-SecurityLevel flagsToSecurityLevel(int32_t flags);
-uint32_t securityLevelToFlags(SecurityLevel secLevel);
-
-}  // namespace keystore
+} // namespace keystore
 
 #endif  // KEYSTORE_KEYSTORE_UTILS_H_
