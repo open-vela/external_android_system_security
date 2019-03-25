@@ -12,40 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <chrono>
 #include <cstdio>
-#include <future>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <base/command_line.h>
-#include <base/files/file_util.h>
-#include <base/strings/string_number_conversions.h>
-#include <base/strings/string_split.h>
-#include <base/strings/string_util.h>
-#include <base/strings/utf_string_conversions.h>
-#include <base/threading/platform_thread.h>
-#include <keystore/keymaster_types.h>
-#include <keystore/keystore_client_impl.h>
-
-#include <android/hardware/confirmationui/1.0/types.h>
-#include <android/security/BnConfirmationPromptCallback.h>
-#include <android/security/keystore/IKeystoreService.h>
-
-#include <binder/IPCThreadState.h>
-#include <binder/IServiceManager.h>
-
-//#include <keystore/keystore.h>
+#include "base/command_line.h"
+#include "base/files/file_util.h"
+#include "base/strings/string_util.h"
+#include "keystore/authorization_set.h"
+#include "keystore/keymaster_tags.h"
+#include "keystore/keystore_client_impl.h"
 
 using base::CommandLine;
+using keystore::AuthorizationSet;
+//using keymaster::AuthorizationSetBuilder;
 using keystore::KeystoreClient;
-
-using android::sp;
-using android::String16;
-using android::security::keystore::IKeystoreService;
-using base::CommandLine;
-using ConfirmationResponseCode = android::hardware::confirmationui::V1_0::ResponseCode;
 
 namespace {
 using namespace keystore;
@@ -60,33 +42,27 @@ void PrintUsageAndExit() {
     printf("Usage: keystore_client_v2 <command> [options]\n");
     printf("Commands: brillo-platform-test [--prefix=<test_name_prefix>] [--test_for_0_3]\n"
            "          list-brillo-tests\n"
-           "          add-entropy --input=<entropy> [--seclevel=software|strongbox|tee(default)]\n"
-           "          generate --name=<key_name> [--seclevel=software|strongbox|tee(default)]\n"
+           "          add-entropy --input=<entropy>\n"
+           "          generate --name=<key_name>\n"
            "          get-chars --name=<key_name>\n"
            "          export --name=<key_name>\n"
            "          delete --name=<key_name>\n"
            "          delete-all\n"
            "          exists --name=<key_name>\n"
            "          list [--prefix=<key_name_prefix>]\n"
-           "          list-apps-with-keys\n"
            "          sign-verify --name=<key_name>\n"
-           "          [en|de]crypt --name=<key_name> --in=<file> --out=<file>\n"
-           "                       [--seclevel=software|strongbox|tee(default)]\n"
-           "          confirmation --prompt_text=<PromptText> --extra_data=<hex>\n"
-           "                       --locale=<locale> [--ui_options=<list_of_ints>]\n"
-           "                       --cancel_after=<seconds>\n");
+           "          [en|de]crypt --name=<key_name> --in=<file> --out=<file>\n");
     exit(1);
 }
 
 std::unique_ptr<KeystoreClient> CreateKeystoreInstance() {
     return std::unique_ptr<KeystoreClient>(
-        static_cast<KeystoreClient*>(new keystore::KeystoreClientImpl));
+            static_cast<KeystoreClient*>(new keystore::KeystoreClientImpl));
 }
 
 void PrintTags(const AuthorizationSet& parameters) {
     for (auto iter = parameters.begin(); iter != parameters.end(); ++iter) {
-        auto tag_str = toString(iter->tag);
-        printf("  %s\n", tag_str.c_str());
+        printf("  %s\n", stringifyTag(iter->tag));
     }
 }
 
@@ -102,9 +78,8 @@ bool TestKey(const std::string& name, bool required, const AuthorizationSet& par
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     AuthorizationSet hardware_enforced_characteristics;
     AuthorizationSet software_enforced_characteristics;
-    auto result =
-        keystore->generateKey("tmp", parameters, 0 /*flags*/, &hardware_enforced_characteristics,
-                              &software_enforced_characteristics);
+    auto result = keystore->generateKey("tmp", parameters, &hardware_enforced_characteristics,
+                                           &software_enforced_characteristics);
     const char kBoldRedAbort[] = "\033[1;31mABORT\033[0m";
     if (!result.isOk()) {
         LOG(ERROR) << "Failed to generate key: " << result;
@@ -145,9 +120,11 @@ AuthorizationSet GetRSASignParameters(uint32_t key_size, bool sha256_only) {
         .Padding(PaddingMode::RSA_PSS)
         .Authorization(TAG_NO_AUTH_REQUIRED);
     if (!sha256_only) {
-        parameters.Digest(Digest::SHA_2_224).Digest(Digest::SHA_2_384).Digest(Digest::SHA_2_512);
+        parameters.Digest(Digest::SHA_2_224)
+            .Digest(Digest::SHA_2_384)
+            .Digest(Digest::SHA_2_512);
     }
-    return std::move(parameters);
+    return parameters;
 }
 
 AuthorizationSet GetRSAEncryptParameters(uint32_t key_size) {
@@ -156,7 +133,7 @@ AuthorizationSet GetRSAEncryptParameters(uint32_t key_size) {
         .Padding(PaddingMode::RSA_PKCS1_1_5_ENCRYPT)
         .Padding(PaddingMode::RSA_OAEP)
         .Authorization(TAG_NO_AUTH_REQUIRED);
-    return std::move(parameters);
+    return parameters;
 }
 
 AuthorizationSet GetECDSAParameters(uint32_t key_size, bool sha256_only) {
@@ -165,9 +142,11 @@ AuthorizationSet GetECDSAParameters(uint32_t key_size, bool sha256_only) {
         .Digest(Digest::SHA_2_256)
         .Authorization(TAG_NO_AUTH_REQUIRED);
     if (!sha256_only) {
-        parameters.Digest(Digest::SHA_2_224).Digest(Digest::SHA_2_384).Digest(Digest::SHA_2_512);
+        parameters.Digest(Digest::SHA_2_224)
+            .Digest(Digest::SHA_2_384)
+            .Digest(Digest::SHA_2_512);
     }
-    return std::move(parameters);
+    return parameters;
 }
 
 AuthorizationSet GetAESParameters(uint32_t key_size, bool with_gcm_mode) {
@@ -182,7 +161,7 @@ AuthorizationSet GetAESParameters(uint32_t key_size, bool with_gcm_mode) {
         parameters.Authorization(TAG_BLOCK_MODE, BlockMode::CTR);
         parameters.Padding(PaddingMode::NONE);
     }
-    return std::move(parameters);
+    return parameters;
 }
 
 AuthorizationSet GetHMACParameters(uint32_t key_size, Digest digest) {
@@ -191,7 +170,7 @@ AuthorizationSet GetHMACParameters(uint32_t key_size, Digest digest) {
         .Digest(digest)
         .Authorization(TAG_MIN_MAC_LENGTH, 224)
         .Authorization(TAG_NO_AUTH_REQUIRED);
-    return std::move(parameters);
+    return parameters;
 }
 
 std::vector<TestCase> GetTestCases() {
@@ -226,8 +205,7 @@ int BrilloPlatformTest(const std::string& prefix, bool test_for_0_3) {
     const char kBoldYellowWarning[] = "\033[1;33mWARNING\033[0m";
     if (test_for_0_3) {
         printf("%s: Testing for keymaster v0.3. "
-               "This does not meet Brillo requirements.\n",
-               kBoldYellowWarning);
+               "This does not meet Brillo requirements.\n", kBoldYellowWarning);
     }
     int test_count = 0;
     int fail_count = 0;
@@ -281,15 +259,14 @@ void WriteFile(const std::string& filename, const std::string& content) {
     }
 }
 
-int AddEntropy(const std::string& input, int32_t flags) {
+int AddEntropy(const std::string& input) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
-    int32_t result = keystore->addRandomNumberGeneratorEntropy(input, flags).getErrorCode();
+    int32_t result = keystore->addRandomNumberGeneratorEntropy(input);
     printf("AddEntropy: %d\n", result);
     return result;
 }
 
-// Note: auth_bound keys created with this tool will not be usable.
-int GenerateKey(const std::string& name, int32_t flags, bool auth_bound) {
+int GenerateKey(const std::string& name) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     AuthorizationSetBuilder params;
     params.RsaSigningKey(2048, 65537)
@@ -298,24 +275,18 @@ int GenerateKey(const std::string& name, int32_t flags, bool auth_bound) {
         .Digest(Digest::SHA_2_384)
         .Digest(Digest::SHA_2_512)
         .Padding(PaddingMode::RSA_PKCS1_1_5_SIGN)
-        .Padding(PaddingMode::RSA_PSS);
-    if (auth_bound) {
-        // Gatekeeper normally generates the secure user id.
-        // Using zero allows the key to be created, but it will not be usuable.
-        params.Authorization(TAG_USER_SECURE_ID, 0);
-    } else {
-        params.Authorization(TAG_NO_AUTH_REQUIRED);
-    }
+        .Padding(PaddingMode::RSA_PSS)
+        .Authorization(TAG_NO_AUTH_REQUIRED);
     AuthorizationSet hardware_enforced_characteristics;
     AuthorizationSet software_enforced_characteristics;
-    auto result = keystore->generateKey(name, params, flags, &hardware_enforced_characteristics,
-                                        &software_enforced_characteristics);
-    printf("GenerateKey: %d\n", result.getErrorCode());
+    auto result = keystore->generateKey(name, params, &hardware_enforced_characteristics,
+                                           &software_enforced_characteristics);
+    printf("GenerateKey: %d\n", int32_t(result));
     if (result.isOk()) {
         PrintKeyCharacteristics(hardware_enforced_characteristics,
                                 software_enforced_characteristics);
     }
-    return result.getErrorCode();
+    return result;
 }
 
 int GetCharacteristics(const std::string& name) {
@@ -323,33 +294,33 @@ int GetCharacteristics(const std::string& name) {
     AuthorizationSet hardware_enforced_characteristics;
     AuthorizationSet software_enforced_characteristics;
     auto result = keystore->getKeyCharacteristics(name, &hardware_enforced_characteristics,
-                                                  &software_enforced_characteristics);
-    printf("GetCharacteristics: %d\n", result.getErrorCode());
+                                                     &software_enforced_characteristics);
+    printf("GetCharacteristics: %d\n", int32_t(result));
     if (result.isOk()) {
         PrintKeyCharacteristics(hardware_enforced_characteristics,
                                 software_enforced_characteristics);
     }
-    return result.getErrorCode();
+    return result;
 }
 
 int ExportKey(const std::string& name) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     std::string data;
-    int32_t result = keystore->exportKey(KeyFormat::X509, name, &data).getErrorCode();
+    int32_t result = keystore->exportKey(KeyFormat::X509, name, &data);
     printf("ExportKey: %d (%zu)\n", result, data.size());
     return result;
 }
 
 int DeleteKey(const std::string& name) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
-    int32_t result = keystore->deleteKey(name).getErrorCode();
+    int32_t result = keystore->deleteKey(name);
     printf("DeleteKey: %d\n", result);
     return result;
 }
 
 int DeleteAllKeys() {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
-    int32_t result = keystore->deleteAllKeys().getErrorCode();
+    int32_t result = keystore->deleteAllKeys();
     printf("DeleteAllKeys: %d\n", result);
     return result;
 }
@@ -374,34 +345,6 @@ int List(const std::string& prefix) {
     return 0;
 }
 
-int ListAppsWithKeys() {
-
-    sp<android::IServiceManager> sm = android::defaultServiceManager();
-    sp<android::IBinder> binder = sm->getService(String16("android.security.keystore"));
-    sp<IKeystoreService> service = android::interface_cast<IKeystoreService>(binder);
-    if (service == nullptr) {
-        fprintf(stderr, "Error connecting to keystore service.\n");
-        return 1;
-    }
-    int32_t aidl_return;
-    ::std::vector<::std::string> uids;
-    android::binder::Status status = service->listUidsOfAuthBoundKeys(&uids, &aidl_return);
-    if (!status.isOk()) {
-        fprintf(stderr, "Requesting uids of auth bound keys failed with error %s.\n",
-                status.toString8().c_str());
-        return 1;
-    }
-    if (!KeyStoreNativeReturnCode(aidl_return).isOk()) {
-        fprintf(stderr, "Requesting uids of auth bound keys failed with code %d.\n", aidl_return);
-        return 1;
-    }
-    printf("Apps with auth bound keys:\n");
-    for (auto i = uids.begin(); i != uids.end(); ++i) {
-        printf("%s\n", i->c_str());
-    }
-    return 0;
-}
-
 int SignAndVerify(const std::string& name) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     AuthorizationSetBuilder sign_params;
@@ -409,11 +352,11 @@ int SignAndVerify(const std::string& name) {
     sign_params.Digest(Digest::SHA_2_256);
     AuthorizationSet output_params;
     uint64_t handle;
-    auto result =
-        keystore->beginOperation(KeyPurpose::SIGN, name, sign_params, &output_params, &handle);
+    auto result = keystore->beginOperation(KeyPurpose::SIGN, name, sign_params,
+                                              &output_params, &handle);
     if (!result.isOk()) {
-        printf("Sign: BeginOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Sign: BeginOperation failed: %d\n", int32_t(result));
+        return result;
     }
     AuthorizationSet empty_params;
     size_t num_input_bytes_consumed;
@@ -421,51 +364,51 @@ int SignAndVerify(const std::string& name) {
     result = keystore->updateOperation(handle, empty_params, "data_to_sign",
                                        &num_input_bytes_consumed, &output_params, &output_data);
     if (!result.isOk()) {
-        printf("Sign: UpdateOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Sign: UpdateOperation failed: %d\n", int32_t(result));
+        return result;
     }
     result = keystore->finishOperation(handle, empty_params, std::string() /*signature_to_verify*/,
                                        &output_params, &output_data);
     if (!result.isOk()) {
-        printf("Sign: FinishOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Sign: FinishOperation failed: %d\n", int32_t(result));
+        return result;
     }
     printf("Sign: %zu bytes.\n", output_data.size());
     // We have a signature, now verify it.
     std::string signature_to_verify = output_data;
     output_data.clear();
-    result =
-        keystore->beginOperation(KeyPurpose::VERIFY, name, sign_params, &output_params, &handle);
+    result = keystore->beginOperation(KeyPurpose::VERIFY, name, sign_params, &output_params,
+                                      &handle);
     if (!result.isOk()) {
-        printf("Verify: BeginOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Verify: BeginOperation failed: %d\n", int32_t(result));
+        return result;
     }
     result = keystore->updateOperation(handle, empty_params, "data_to_sign",
                                        &num_input_bytes_consumed, &output_params, &output_data);
     if (!result.isOk()) {
-        printf("Verify: UpdateOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Verify: UpdateOperation failed: %d\n", int32_t(result));
+        return result;
     }
     result = keystore->finishOperation(handle, empty_params, signature_to_verify, &output_params,
                                        &output_data);
     if (result == ErrorCode::VERIFICATION_FAILED) {
         printf("Verify: Failed to verify signature.\n");
-        return result.getErrorCode();
+        return result;
     }
     if (!result.isOk()) {
-        printf("Verify: FinishOperation failed: %d\n", result.getErrorCode());
-        return result.getErrorCode();
+        printf("Verify: FinishOperation failed: %d\n", int32_t(result));
+        return result;
     }
     printf("Verify: OK\n");
     return 0;
 }
 
 int Encrypt(const std::string& key_name, const std::string& input_filename,
-            const std::string& output_filename, int32_t flags) {
+            const std::string& output_filename) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     std::string input = ReadFile(input_filename);
     std::string output;
-    if (!keystore->encryptWithAuthentication(key_name, input, flags, &output)) {
+    if (!keystore->encryptWithAuthentication(key_name, input, &output)) {
         printf("EncryptWithAuthentication failed.\n");
         return 1;
     }
@@ -486,151 +429,12 @@ int Decrypt(const std::string& key_name, const std::string& input_filename,
     return 0;
 }
 
-uint32_t securityLevelOption2Flags(const CommandLine& cmd) {
-    if (cmd.HasSwitch("seclevel")) {
-        auto str = cmd.GetSwitchValueASCII("seclevel");
-        if (str == "strongbox") {
-            return KEYSTORE_FLAG_STRONGBOX;
-        } else if (str == "software") {
-            return KEYSTORE_FLAG_FALLBACK;
-        }
-    }
-    return KEYSTORE_FLAG_NONE;
-}
-
-class ConfirmationListener
-    : public android::security::BnConfirmationPromptCallback,
-      public std::promise<std::tuple<ConfirmationResponseCode, std::vector<uint8_t>>> {
-  public:
-    ConfirmationListener() {}
-
-    virtual ::android::binder::Status
-    onConfirmationPromptCompleted(int32_t result,
-                                  const ::std::vector<uint8_t>& dataThatWasConfirmed) override {
-        this->set_value({static_cast<ConfirmationResponseCode>(result), dataThatWasConfirmed});
-        return ::android::binder::Status::ok();
-    }
-};
-
-int Confirmation(const std::string& promptText, const std::string& extraDataHex,
-                 const std::string& locale, const std::string& uiOptionsStr,
-                 const std::string& cancelAfter) {
-    sp<android::IServiceManager> sm = android::defaultServiceManager();
-    sp<android::IBinder> binder = sm->getService(String16("android.security.keystore"));
-    sp<IKeystoreService> service = android::interface_cast<IKeystoreService>(binder);
-    if (service == nullptr) {
-        printf("error: could not connect to keystore service.\n");
-        return 1;
-    }
-
-    if (promptText.size() == 0) {
-        printf("The --prompt_text parameter cannot be empty.\n");
-        return 1;
-    }
-
-    std::vector<uint8_t> extraData;
-    if (!base::HexStringToBytes(extraDataHex, &extraData)) {
-        printf("The --extra_data parameter does not appear to be valid hexadecimal.\n");
-        return 1;
-    }
-
-    std::vector<std::string> pieces =
-        base::SplitString(uiOptionsStr, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
-    int uiOptionsAsFlags = 0;
-    for (auto& p : pieces) {
-        int value;
-        if (!base::StringToInt(p, &value)) {
-            printf("Error parsing %s in --ui_options parameter as a number.\n", p.c_str());
-            return 1;
-        }
-        uiOptionsAsFlags |= (1 << value);
-    }
-
-    double cancelAfterValue = 0.0;
-
-    if (cancelAfter.size() > 0 && !base::StringToDouble(cancelAfter, &cancelAfterValue)) {
-        printf("Error parsing %s in --cancel_after parameter as a double.\n", cancelAfter.c_str());
-        return 1;
-    }
-
-    String16 promptText16(promptText.data(), promptText.size());
-    String16 locale16(locale.data(), locale.size());
-
-    sp<ConfirmationListener> listener = new ConfirmationListener();
-
-    auto future = listener->get_future();
-    int32_t aidl_return;
-    android::binder::Status status = service->presentConfirmationPrompt(
-        listener, promptText16, extraData, locale16, uiOptionsAsFlags, &aidl_return);
-    if (!status.isOk()) {
-        printf("Presenting confirmation prompt failed with binder status '%s'.\n",
-               status.toString8().c_str());
-        return 1;
-    }
-    ConfirmationResponseCode responseCode = static_cast<ConfirmationResponseCode>(aidl_return);
-    if (responseCode != ConfirmationResponseCode::OK) {
-        printf("Presenting confirmation prompt failed with response code %d.\n", responseCode);
-        return 1;
-    }
-    printf("Waiting for prompt to complete - use Ctrl+C to abort...\n");
-
-    if (cancelAfterValue > 0.0) {
-        printf("Sleeping %.1f seconds before canceling prompt...\n", cancelAfterValue);
-        auto fstatus =
-            future.wait_for(std::chrono::milliseconds(uint64_t(cancelAfterValue * 1000)));
-        if (fstatus == std::future_status::timeout) {
-            status = service->cancelConfirmationPrompt(listener, &aidl_return);
-            if (!status.isOk()) {
-                printf("Canceling confirmation prompt failed with binder status '%s'.\n",
-                       status.toString8().c_str());
-                return 1;
-            }
-            responseCode = static_cast<ConfirmationResponseCode>(aidl_return);
-            if (responseCode == ConfirmationResponseCode::Ignored) {
-                // The confirmation was completed by the user so take the response
-            } else if (responseCode != ConfirmationResponseCode::OK) {
-                printf("Canceling confirmation prompt failed with response code %d.\n",
-                       responseCode);
-                return 1;
-            }
-        }
-    }
-
-    future.wait();
-
-    auto [rc, dataThatWasConfirmed] = future.get();
-
-    printf("Confirmation prompt completed\n"
-           "responseCode = %d\n",
-           rc);
-    printf("dataThatWasConfirmed[%zd] = {", dataThatWasConfirmed.size());
-    size_t newLineCountDown = 16;
-    bool hasPrinted = false;
-    for (uint8_t element : dataThatWasConfirmed) {
-        if (hasPrinted) {
-            printf(", ");
-        }
-        if (newLineCountDown == 0) {
-            printf("\n  ");
-            newLineCountDown = 32;
-        }
-        printf("0x%02x", element);
-        hasPrinted = true;
-    }
-    printf("}\n");
-
-    return 0;
-}
-
 }  // namespace
 
 int main(int argc, char** argv) {
     CommandLine::Init(argc, argv);
     CommandLine* command_line = CommandLine::ForCurrentProcess();
     CommandLine::StringVector args = command_line->GetArgs();
-
-    android::ProcessState::self()->startThreadPool();
-
     if (args.empty()) {
         PrintUsageAndExit();
     }
@@ -640,12 +444,9 @@ int main(int argc, char** argv) {
     } else if (args[0] == "list-brillo-tests") {
         return ListTestCases();
     } else if (args[0] == "add-entropy") {
-        return AddEntropy(command_line->GetSwitchValueASCII("input"),
-                          securityLevelOption2Flags(*command_line));
+        return AddEntropy(command_line->GetSwitchValueASCII("input"));
     } else if (args[0] == "generate") {
-        return GenerateKey(command_line->GetSwitchValueASCII("name"),
-                           securityLevelOption2Flags(*command_line),
-                           command_line->HasSwitch("auth_bound"));
+        return GenerateKey(command_line->GetSwitchValueASCII("name"));
     } else if (args[0] == "get-chars") {
         return GetCharacteristics(command_line->GetSwitchValueASCII("name"));
     } else if (args[0] == "export") {
@@ -658,24 +459,16 @@ int main(int argc, char** argv) {
         return DoesKeyExist(command_line->GetSwitchValueASCII("name"));
     } else if (args[0] == "list") {
         return List(command_line->GetSwitchValueASCII("prefix"));
-    } else if (args[0] == "list-apps-with-keys") {
-        return ListAppsWithKeys();
     } else if (args[0] == "sign-verify") {
         return SignAndVerify(command_line->GetSwitchValueASCII("name"));
     } else if (args[0] == "encrypt") {
-        return Encrypt(
-            command_line->GetSwitchValueASCII("name"), command_line->GetSwitchValueASCII("in"),
-            command_line->GetSwitchValueASCII("out"), securityLevelOption2Flags(*command_line));
+        return Encrypt(command_line->GetSwitchValueASCII("name"),
+                       command_line->GetSwitchValueASCII("in"),
+                       command_line->GetSwitchValueASCII("out"));
     } else if (args[0] == "decrypt") {
         return Decrypt(command_line->GetSwitchValueASCII("name"),
                        command_line->GetSwitchValueASCII("in"),
                        command_line->GetSwitchValueASCII("out"));
-    } else if (args[0] == "confirmation") {
-        return Confirmation(command_line->GetSwitchValueNative("prompt_text"),
-                            command_line->GetSwitchValueASCII("extra_data"),
-                            command_line->GetSwitchValueASCII("locale"),
-                            command_line->GetSwitchValueASCII("ui_options"),
-                            command_line->GetSwitchValueASCII("cancel_after"));
     } else {
         PrintUsageAndExit();
     }
