@@ -20,7 +20,6 @@
 #include "operation_config.pb.h"
 #include "operation_struct.h"
 #include <chrono>
-#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -36,7 +35,6 @@ class OperationProtoHandler {
   private:
     std::unordered_map<std::string, int> protoMap;
     std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
-    std::mutex op_upload_mutex;
 };
 
 }  // namespace keystore
