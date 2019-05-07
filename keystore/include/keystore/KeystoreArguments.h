@@ -12,31 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef KEYSTORE_INCLUDE_KEYSTORE_KEYMASTERCERTIFICATECHAIN_H_
-#define KEYSTORE_INCLUDE_KEYSTORE_KEYMASTERCERTIFICATECHAIN_H_
+#ifndef KEYSTORE_INCLUDE_KEYSTORE_KEYSTOREARGUMENTS_H_
+#define KEYSTORE_INCLUDE_KEYSTORE_KEYSTOREARGUMENTS_H_
 
 #include <binder/Parcelable.h>
+#include <utils/RefBase.h>
+#include <utils/Vector.h>
+
+#include "KeystoreArg.h"
+#include "keystore_return_types.h"
 
 namespace android {
 namespace security {
-namespace keymaster {
 
-// struct for serializing keymaster_cert_chain_t's
-struct KeymasterCertificateChain : public ::android::Parcelable {
-    KeymasterCertificateChain(){};
-    explicit KeymasterCertificateChain(hardware::hidl_vec<hardware::hidl_vec<uint8_t>> other)
-        : chain(std::move(other)) {}
-
+// Parcelable KeystoreArguments.java which simply holds byte[][].
+struct KeystoreArguments : public ::android::Parcelable, public RefBase {
     status_t readFromParcel(const Parcel* in) override;
     status_t writeToParcel(Parcel* out) const override;
 
+    const Vector<sp<KeystoreArg>>& getArguments() const { return args; }
+
   private:
-    // The structure is only used as output and doesn't have getter.
-    hardware::hidl_vec<hardware::hidl_vec<uint8_t>> chain;
+    Vector<sp<KeystoreArg>> args;
 };
 
-}  // namespace keymaster
 }  // namespace security
 }  // namespace android
 
-#endif  // KEYSTORE_INCLUDE_KEYSTORE_KEYMASTERCERTIFICATECHAIN_H_
+#endif  // KEYSTORE_INCLUDE_KEYSTORE_KEYSTOREARGUMENTS_H_

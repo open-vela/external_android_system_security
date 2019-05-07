@@ -52,20 +52,17 @@ template <typename... Args> inline static std::string argsToString(Args&&... arg
     return s.str();
 }
 
-template <typename KMDevice, typename... Msgs>
-inline static ErrorCode ksHandleHidlError(KMDevice dev, const Return<ErrorCode>& error,
-                                          Msgs&&... msgs) {
+template <typename... Msgs>
+inline static ErrorCode ksHandleHidlError(const Return<ErrorCode>& error, Msgs&&... msgs) {
     if (!error.isOk()) {
-        LOG(ERROR) << "HIDL call failed with " << error.description().c_str() << " @ "
-                   << argsToString(msgs...);
+        ALOGE("HIDL call failed with %s @ %s", error.description().c_str(),
+              argsToString(msgs...).c_str());
         return ErrorCode::UNKNOWN_ERROR;
     }
-    auto ec = ErrorCode(error);
-    dev->logIfKeymasterVendorError(ec);
-    return ec;
+    return ErrorCode(error);
 }
-template <typename KMDevice, typename... Msgs>
-inline static ErrorCode ksHandleHidlError(KMDevice, const Return<void>& error, Msgs&&... msgs) {
+template <typename... Msgs>
+inline static ErrorCode ksHandleHidlError(const Return<void>& error, Msgs&&... msgs) {
     if (!error.isOk()) {
         ALOGE("HIDL call failed with %s @ %s", error.description().c_str(),
               argsToString(msgs...).c_str());
@@ -74,8 +71,8 @@ inline static ErrorCode ksHandleHidlError(KMDevice, const Return<void>& error, M
     return ErrorCode::OK;
 }
 
-#define KS_HANDLE_HIDL_ERROR(dev, rc)                                                              \
-    ::keystore::ksHandleHidlError(dev, rc, __FILE__, ":", __LINE__, ":", __PRETTY_FUNCTION__)
+#define KS_HANDLE_HIDL_ERROR(rc)                                                                   \
+    ::keystore::ksHandleHidlError(rc, __FILE__, ":", __LINE__, ":", __PRETTY_FUNCTION__)
 
 template <typename T, typename OutIter>
 inline static OutIter copy_bytes_to_iterator(const T& value, OutIter dest) {
