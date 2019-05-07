@@ -36,6 +36,7 @@
 #include <string>
 
 #include <android-base/logging.h>
+#include <android-base/unique_fd.h>
 
 namespace {
 
@@ -142,12 +143,12 @@ ResponseCode AES_gcm_decrypt(const uint8_t* in, uint8_t* out, size_t len,
     EVP_DecryptUpdate(ctx.get(), out_pos, &out_len, in, len);
     out_pos += out_len;
     if (!EVP_DecryptFinal_ex(ctx.get(), out_pos, &out_len)) {
-        ALOGD("Failed to decrypt blob; ciphertext or tag is likely corrupted");
+        ALOGE("Failed to decrypt blob; ciphertext or tag is likely corrupted");
         return ResponseCode::VALUE_CORRUPTED;
     }
     out_pos += out_len;
     if (out_pos - out_tmp.get() != static_cast<ssize_t>(len)) {
-        ALOGD("Encrypted plaintext is the wrong size, expected %zu, got %zd", len,
+        ALOGE("Encrypted plaintext is the wrong size, expected %zu, got %zd", len,
               out_pos - out_tmp.get());
         return ResponseCode::VALUE_CORRUPTED;
     }
@@ -341,22 +342,35 @@ static ResponseCode writeBlob(const std::string& filename, Blob blob, blobv3* ra
 
     size_t fileLength = offsetof(blobv3, value) + dataLength + rawBlob->info;
 
-    int out =
-        TEMP_FAILURE_RETRY(open(filename.c_str(), O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR));
-    if (out < 0) {
-        ALOGW("could not open file: %s: %s", filename.c_str(), strerror(errno));
+    char tmpFileName[] = ".tmpXXXXXX";
+    {
+        android::base::unique_fd out(TEMP_FAILURE_RETRY(mkstemp(tmpFileName)));
+        if (out < 0) {
+            LOG(ERROR) << "could not open temp file: " << tmpFileName
+                       << " for writing blob file: " << filename.c_str()
+                       << " because: " << strerror(errno);
+            return ResponseCode::SYSTEM_ERROR;
+        }
+
+        const size_t writtenBytes =
+            writeFully(out, reinterpret_cast<uint8_t*>(rawBlob), fileLength);
+
+        if (writtenBytes != fileLength) {
+            LOG(ERROR) << "blob not fully written " << writtenBytes << " != " << fileLength;
+            unlink(tmpFileName);
+            return ResponseCode::SYSTEM_ERROR;
+        }
+    }
+
+    if (rename(tmpFileName, filename.c_str()) == -1) {
+        LOG(ERROR) << "could not rename blob file to " << filename
+                   << " because: " << strerror(errno);
+        unlink(tmpFileName);
         return ResponseCode::SYSTEM_ERROR;
     }
 
-    const size_t writtenBytes = writeFully(out, reinterpret_cast<uint8_t*>(rawBlob), fileLength);
-    if (close(out) != 0) {
-        return ResponseCode::SYSTEM_ERROR;
-    }
-    if (writtenBytes != fileLength) {
-        ALOGW("blob not fully written %zu != %zu", writtenBytes, fileLength);
-        unlink(filename.c_str());
-        return ResponseCode::SYSTEM_ERROR;
-    }
+    fsyncDirectory(getContainingDirectory(filename));
+
     return ResponseCode::NO_ERROR;
 }
 
@@ -401,6 +415,7 @@ ResponseCode Blob::readBlob(const std::string& filename, const std::vector<uint8
     }
 
     if (fileLength == 0) {
+        LOG(ERROR) << __func__ << " VALUE_CORRUPTED file length == 0";
         return ResponseCode::VALUE_CORRUPTED;
     }
 
@@ -412,7 +427,10 @@ ResponseCode Blob::readBlob(const std::string& filename, const std::vector<uint8
         if (state == STATE_UNINITIALIZED) return ResponseCode::UNINITIALIZED;
     }
 
-    if (fileLength < offsetof(blobv3, value)) return ResponseCode::VALUE_CORRUPTED;
+    if (fileLength < offsetof(blobv3, value)) {
+        LOG(ERROR) << __func__ << " VALUE_CORRUPTED blob file too short: " << fileLength;
+        return ResponseCode::VALUE_CORRUPTED;
+    }
 
     if (rawBlob->version == 3) {
         const ssize_t encryptedLength = ntohl(rawBlob->length);
@@ -428,6 +446,8 @@ ResponseCode Blob::readBlob(const std::string& filename, const std::vector<uint8
                     (rc == ResponseCode::VALUE_CORRUPTED)) {
                     return ResponseCode::KEY_PERMANENTLY_INVALIDATED;
                 }
+                LOG(ERROR) << __func__ << " AES_gcm_decrypt returned: " << uint32_t(rc);
+
                 return rc;
             }
         }
@@ -435,10 +455,16 @@ ResponseCode Blob::readBlob(const std::string& filename, const std::vector<uint8
         blobv2& v2blob = reinterpret_cast<blobv2&>(*rawBlob);
         const size_t headerLength = offsetof(blobv2, encrypted);
         const ssize_t encryptedLength = fileLength - headerLength - v2blob.info;
-        if (encryptedLength < 0) return ResponseCode::VALUE_CORRUPTED;
+        if (encryptedLength < 0) {
+            LOG(ERROR) << __func__ << " VALUE_CORRUPTED v2blob file too short";
+            return ResponseCode::VALUE_CORRUPTED;
+        }
 
         if (rawBlobIsEncrypted(*rawBlob)) {
             if (encryptedLength % AES_BLOCK_SIZE != 0) {
+                LOG(ERROR) << __func__
+                           << " VALUE_CORRUPTED encrypted length is not a multiple"
+                              " of the AES block size";
                 return ResponseCode::VALUE_CORRUPTED;
             }
 
@@ -452,6 +478,7 @@ ResponseCode Blob::readBlob(const std::string& filename, const std::vector<uint8
             ssize_t digestedLength = encryptedLength - MD5_DIGEST_LENGTH;
             MD5(v2blob.digested, digestedLength, computedDigest);
             if (memcmp(v2blob.digest, computedDigest, MD5_DIGEST_LENGTH) != 0) {
+                LOG(ERROR) << __func__ << " v2blob MD5 digest mismatch";
                 return ResponseCode::VALUE_CORRUPTED;
             }
         }
@@ -462,6 +489,7 @@ ResponseCode Blob::readBlob(const std::string& filename, const std::vector<uint8
     if (rawBlob->length < 0 || rawBlob->length > maxValueLength ||
         rawBlob->length + rawBlob->info + AES_BLOCK_SIZE >
             static_cast<ssize_t>(sizeof(rawBlob->value))) {
+        LOG(ERROR) << __func__ << " raw blob length is out of bounds";
         return ResponseCode::VALUE_CORRUPTED;
     }
 
