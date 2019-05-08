@@ -28,7 +28,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <log/log.h>
+#include <cutils/log.h>
 
 #include <openssl/bn.h>
 #include <openssl/ec.h>
@@ -48,8 +48,8 @@
 #endif
 
 namespace {
-KeystoreBackend *g_keystore_backend;
-void ensure_keystore_engine();
+extern const RSA_METHOD keystore_rsa_method;
+extern const ECDSA_METHOD keystore_ecdsa_method;
 
 /* key_id_dup is called when one of the RSA or EC_KEY objects is duplicated. */
 int key_id_dup(CRYPTO_EX_DATA* /* to */,
@@ -59,7 +59,7 @@ int key_id_dup(CRYPTO_EX_DATA* /* to */,
                long /* argl */,
                void* /* argp */) {
     char *key_id = reinterpret_cast<char *>(*from_d);
-    if (key_id != nullptr) {
+    if (key_id != NULL) {
         *from_d = strdup(key_id);
     }
     return 1;
@@ -76,13 +76,71 @@ void key_id_free(void* /* parent */,
     free(key_id);
 }
 
+/* KeystoreEngine is a BoringSSL ENGINE that implements RSA and ECDSA by
+ * forwarding the requested operations to Keystore. */
+class KeystoreEngine {
+ public:
+  KeystoreEngine()
+      : rsa_index_(RSA_get_ex_new_index(0 /* argl */,
+                                        NULL /* argp */,
+                                        NULL /* new_func */,
+                                        key_id_dup,
+                                        key_id_free)),
+        ec_key_index_(EC_KEY_get_ex_new_index(0 /* argl */,
+                                              NULL /* argp */,
+                                              NULL /* new_func */,
+                                              key_id_dup,
+                                              key_id_free)),
+        engine_(ENGINE_new()) {
+    ENGINE_set_RSA_method(
+        engine_, &keystore_rsa_method, sizeof(keystore_rsa_method));
+    ENGINE_set_ECDSA_method(
+        engine_, &keystore_ecdsa_method, sizeof(keystore_ecdsa_method));
+  }
+
+  int rsa_ex_index() const { return rsa_index_; }
+  int ec_key_ex_index() const { return ec_key_index_; }
+
+  const ENGINE* engine() const { return engine_; }
+
+ private:
+  const int rsa_index_;
+  const int ec_key_index_;
+  ENGINE* const engine_;
+};
+
+pthread_once_t g_keystore_engine_once = PTHREAD_ONCE_INIT;
+KeystoreEngine *g_keystore_engine;
+KeystoreBackend *g_keystore_backend;
+
+/* init_keystore_engine is called to initialize |g_keystore_engine|. This
+ * should only be called by |pthread_once|. */
+void init_keystore_engine() {
+    g_keystore_engine = new KeystoreEngine;
+#ifndef BACKEND_WIFI_HIDL
+    g_keystore_backend = new KeystoreBackendBinder;
+#else
+    g_keystore_backend = new KeystoreBackendHidl;
+#endif
+}
+
+/* ensure_keystore_engine ensures that |g_keystore_engine| is pointing to a
+ * valid |KeystoreEngine| object and creates one if not. */
+void ensure_keystore_engine() {
+    pthread_once(&g_keystore_engine_once, init_keystore_engine);
+}
+
 /* Many OpenSSL APIs take ownership of an argument on success but don't free
  * the argument on failure. This means we need to tell our scoped pointers when
  * we've transferred ownership, without triggering a warning by not using the
  * result of release(). */
-#define OWNERSHIP_TRANSFERRED(obj) auto _dummy __attribute__((unused)) = (obj).release()
+#define OWNERSHIP_TRANSFERRED(obj) \
+    typeof ((obj).release()) _dummy __attribute__((unused)) = (obj).release()
 
-const char* rsa_get_key_id(const RSA* rsa);
+const char* rsa_get_key_id(const RSA* rsa) {
+  return reinterpret_cast<char*>(
+      RSA_get_ex_data(rsa, g_keystore_engine->rsa_ex_index()));
+}
 
 /* rsa_private_transform takes a big-endian integer from |in|, calculates the
  * d'th power of it, modulo the RSA modulus, and writes the result as a
@@ -94,12 +152,12 @@ int rsa_private_transform(RSA *rsa, uint8_t *out, const uint8_t *in, size_t len)
     ensure_keystore_engine();
 
     const char *key_id = rsa_get_key_id(rsa);
-    if (key_id == nullptr) {
+    if (key_id == NULL) {
         ALOGE("key had no key_id!");
         return 0;
     }
 
-    uint8_t* reply = nullptr;
+    uint8_t* reply = NULL;
     size_t reply_len;
     int32_t ret = g_keystore_backend->sign(key_id, in, len, &reply, &reply_len);
     if (ret < 0) {
@@ -108,7 +166,7 @@ int rsa_private_transform(RSA *rsa, uint8_t *out, const uint8_t *in, size_t len)
     } else if (ret != 0) {
         ALOGW("Error during sign from keystore: %d", ret);
         return 0;
-    } else if (reply_len == 0 || reply == nullptr) {
+    } else if (reply_len == 0 || reply == NULL) {
         ALOGW("No valid signature returned");
         return 0;
     }
@@ -136,7 +194,42 @@ int rsa_private_transform(RSA *rsa, uint8_t *out, const uint8_t *in, size_t len)
     return 1;
 }
 
-const char* ecdsa_get_key_id(const EC_KEY* ec_key);
+const struct rsa_meth_st keystore_rsa_method = {
+  {
+    0 /* references */,
+    1 /* is_static */,
+  },
+  NULL /* app_data */,
+
+  NULL /* init */,
+  NULL /* finish */,
+
+  NULL /* size */,
+
+  NULL /* sign */,
+  NULL /* verify */,
+
+  NULL /* encrypt */,
+  NULL /* sign_raw */,
+  NULL /* decrypt */,
+  NULL /* verify_raw */,
+
+  rsa_private_transform,
+
+  NULL /* mod_exp */,
+  NULL /* bn_mod_exp */,
+
+  RSA_FLAG_CACHE_PUBLIC | RSA_FLAG_OPAQUE,
+
+  NULL /* keygen */,
+  NULL /* multi_prime_keygen */,
+  NULL /* supports_digest */,
+};
+
+const char* ecdsa_get_key_id(const EC_KEY* ec_key) {
+    return reinterpret_cast<char*>(
+        EC_KEY_get_ex_data(ec_key, g_keystore_engine->ec_key_ex_index()));
+}
 
 /* ecdsa_sign signs |digest_len| bytes from |digest| with |ec_key| and writes
  * the resulting signature (an ASN.1 encoded blob) to |sig|. It returns one on
@@ -148,21 +241,21 @@ static int ecdsa_sign(const uint8_t* digest, size_t digest_len, uint8_t* sig,
     ensure_keystore_engine();
 
     const char *key_id = ecdsa_get_key_id(ec_key);
-    if (key_id == nullptr) {
+    if (key_id == NULL) {
         ALOGE("key had no key_id!");
         return 0;
     }
 
     size_t ecdsa_size = ECDSA_size(ec_key);
 
-    uint8_t* reply = nullptr;
+    uint8_t* reply = NULL;
     size_t reply_len;
     int32_t ret = g_keystore_backend->sign(
             key_id, digest, digest_len, &reply, &reply_len);
     if (ret < 0) {
         ALOGW("There was an error during ecdsa_sign: could not connect");
         return 0;
-    } else if (reply_len == 0 || reply == nullptr) {
+    } else if (reply_len == 0 || reply == NULL) {
         ALOGW("No valid signature returned");
         return 0;
     } else if (reply_len > ecdsa_size) {
@@ -179,77 +272,20 @@ static int ecdsa_sign(const uint8_t* digest, size_t digest_len, uint8_t* sig,
     return 1;
 }
 
-/* KeystoreEngine is a BoringSSL ENGINE that implements RSA and ECDSA by
- * forwarding the requested operations to Keystore. */
-class KeystoreEngine {
- public:
-  KeystoreEngine()
-      : rsa_index_(RSA_get_ex_new_index(0 /* argl */,
-                                        nullptr /* argp */,
-                                        nullptr /* new_func */,
-                                        key_id_dup,
-                                        key_id_free)),
-        ec_key_index_(EC_KEY_get_ex_new_index(0 /* argl */,
-                                              nullptr /* argp */,
-                                              nullptr /* new_func */,
-                                              key_id_dup,
-                                              key_id_free)),
-        engine_(ENGINE_new()) {
-    memset(&rsa_method_, 0, sizeof(rsa_method_));
-    rsa_method_.common.is_static = 1;
-    rsa_method_.private_transform = rsa_private_transform;
-    rsa_method_.flags = RSA_FLAG_OPAQUE;
-    ENGINE_set_RSA_method(engine_, &rsa_method_, sizeof(rsa_method_));
+const ECDSA_METHOD keystore_ecdsa_method = {
+    {
+     0 /* references */,
+     1 /* is_static */
+    } /* common */,
+    NULL /* app_data */,
 
-    memset(&ecdsa_method_, 0, sizeof(ecdsa_method_));
-    ecdsa_method_.common.is_static = 1;
-    ecdsa_method_.sign = ecdsa_sign;
-    ecdsa_method_.flags = ECDSA_FLAG_OPAQUE;
-    ENGINE_set_ECDSA_method(engine_, &ecdsa_method_, sizeof(ecdsa_method_));
-  }
-
-  int rsa_ex_index() const { return rsa_index_; }
-  int ec_key_ex_index() const { return ec_key_index_; }
-
-  const ENGINE* engine() const { return engine_; }
-
- private:
-  const int rsa_index_;
-  const int ec_key_index_;
-  RSA_METHOD rsa_method_;
-  ECDSA_METHOD ecdsa_method_;
-  ENGINE* const engine_;
+    NULL /* init */,
+    NULL /* finish */,
+    NULL /* group_order_size */,
+    ecdsa_sign,
+    NULL /* verify */,
+    ECDSA_FLAG_OPAQUE,
 };
-
-pthread_once_t g_keystore_engine_once = PTHREAD_ONCE_INIT;
-KeystoreEngine *g_keystore_engine;
-
-/* init_keystore_engine is called to initialize |g_keystore_engine|. This
- * should only be called by |pthread_once|. */
-void init_keystore_engine() {
-  g_keystore_engine = new KeystoreEngine;
-#ifndef BACKEND_WIFI_HIDL
-  g_keystore_backend = new KeystoreBackendBinder;
-#else
-  g_keystore_backend = new KeystoreBackendHidl;
-#endif
-}
-
-/* ensure_keystore_engine ensures that |g_keystore_engine| is pointing to a
- * valid |KeystoreEngine| object and creates one if not. */
-void ensure_keystore_engine() {
-  pthread_once(&g_keystore_engine_once, init_keystore_engine);
-}
-
-const char* rsa_get_key_id(const RSA* rsa) {
-  return reinterpret_cast<char*>(
-      RSA_get_ex_data(rsa, g_keystore_engine->rsa_ex_index()));
-}
-
-const char* ecdsa_get_key_id(const EC_KEY* ec_key) {
-  return reinterpret_cast<char*>(
-      EC_KEY_get_ex_data(ec_key, g_keystore_engine->ec_key_ex_index()));
-}
 
 struct EVP_PKEY_Delete {
     void operator()(EVP_PKEY* p) const {
@@ -277,31 +313,31 @@ typedef std::unique_ptr<EC_KEY, EC_KEY_Delete> Unique_EC_KEY;
  * KeyStore and operate on the key named |key_id|. */
 static EVP_PKEY *wrap_rsa(const char *key_id, const RSA *public_rsa) {
     Unique_RSA rsa(RSA_new_method(g_keystore_engine->engine()));
-    if (rsa.get() == nullptr) {
-        return nullptr;
+    if (rsa.get() == NULL) {
+        return NULL;
     }
 
     char *key_id_copy = strdup(key_id);
-    if (key_id_copy == nullptr) {
-        return nullptr;
+    if (key_id_copy == NULL) {
+        return NULL;
     }
 
     if (!RSA_set_ex_data(rsa.get(), g_keystore_engine->rsa_ex_index(),
                          key_id_copy)) {
         free(key_id_copy);
-        return nullptr;
+        return NULL;
     }
 
     rsa->n = BN_dup(public_rsa->n);
     rsa->e = BN_dup(public_rsa->e);
-    if (rsa->n == nullptr || rsa->e == nullptr) {
-        return nullptr;
+    if (rsa->n == NULL || rsa->e == NULL) {
+        return NULL;
     }
 
     Unique_EVP_PKEY result(EVP_PKEY_new());
-    if (result.get() == nullptr ||
+    if (result.get() == NULL ||
         !EVP_PKEY_assign_RSA(result.get(), rsa.get())) {
-        return nullptr;
+        return NULL;
     }
     OWNERSHIP_TRANSFERRED(rsa);
 
@@ -313,30 +349,30 @@ static EVP_PKEY *wrap_rsa(const char *key_id, const RSA *public_rsa) {
  * KeyStore and operate on the key named |key_id|. */
 static EVP_PKEY *wrap_ecdsa(const char *key_id, const EC_KEY *public_ecdsa) {
     Unique_EC_KEY ec(EC_KEY_new_method(g_keystore_engine->engine()));
-    if (ec.get() == nullptr) {
-        return nullptr;
+    if (ec.get() == NULL) {
+        return NULL;
     }
 
     if (!EC_KEY_set_group(ec.get(), EC_KEY_get0_group(public_ecdsa)) ||
         !EC_KEY_set_public_key(ec.get(), EC_KEY_get0_public_key(public_ecdsa))) {
-        return nullptr;
+        return NULL;
     }
 
     char *key_id_copy = strdup(key_id);
-    if (key_id_copy == nullptr) {
-        return nullptr;
+    if (key_id_copy == NULL) {
+        return NULL;
     }
 
     if (!EC_KEY_set_ex_data(ec.get(), g_keystore_engine->ec_key_ex_index(),
                             key_id_copy)) {
         free(key_id_copy);
-        return nullptr;
+        return NULL;
     }
 
     Unique_EVP_PKEY result(EVP_PKEY_new());
-    if (result.get() == nullptr ||
+    if (result.get() == NULL ||
         !EVP_PKEY_assign_EC_KEY(result.get(), ec.get())) {
-        return nullptr;
+        return NULL;
     }
     OWNERSHIP_TRANSFERRED(ec);
 
@@ -358,22 +394,22 @@ EVP_PKEY* EVP_PKEY_from_keystore(const char* key_id) {
 
     ensure_keystore_engine();
 
-    uint8_t *pubkey = nullptr;
+    uint8_t *pubkey = NULL;
     size_t pubkey_len;
     int32_t ret = g_keystore_backend->get_pubkey(key_id, &pubkey, &pubkey_len);
     if (ret < 0) {
         ALOGW("could not contact keystore");
-        return nullptr;
-    } else if (ret != 0 || pubkey == nullptr) {
+        return NULL;
+    } else if (ret != 0 || pubkey == NULL) {
         ALOGW("keystore reports error: %d", ret);
-        return nullptr;
+        return NULL;
     }
 
     const uint8_t *inp = pubkey;
-    Unique_EVP_PKEY pkey(d2i_PUBKEY(nullptr, &inp, pubkey_len));
-    if (pkey.get() == nullptr) {
+    Unique_EVP_PKEY pkey(d2i_PUBKEY(NULL, &inp, pubkey_len));
+    if (pkey.get() == NULL) {
         ALOGW("Cannot convert pubkey");
-        return nullptr;
+        return NULL;
     }
 
     EVP_PKEY *result;
@@ -390,7 +426,7 @@ EVP_PKEY* EVP_PKEY_from_keystore(const char* key_id) {
     }
     default:
         ALOGE("Unsupported key type %d", EVP_PKEY_type(pkey->type));
-        result = nullptr;
+        result = NULL;
     }
 
     return result;

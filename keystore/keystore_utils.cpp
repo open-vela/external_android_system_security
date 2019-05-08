@@ -22,19 +22,12 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <log/log.h>
+#include <cutils/log.h>
 #include <private/android_filesystem_config.h>
-#include <private/android_logger.h>
 
-#include <log/log_event_list.h>
-
-#include <keystore/keymaster_types.h>
+#include <keystore/authorization_set.h>
 #include <keystore/keystore_client.h>
-
-#include <android-base/logging.h>
-#include <android-base/unique_fd.h>
-
-#include "blob.h"
+#include <keystore/IKeystoreService.h>
 
 size_t readFully(int fd, uint8_t* data, size_t size) {
     size_t remaining = size;
@@ -67,44 +60,6 @@ size_t writeFully(int fd, uint8_t* data, size_t size) {
     return size;
 }
 
-std::string getContainingDirectory(const std::string& filename) {
-    std::string containing_dir;
-    size_t last_pos;
-    size_t pos = std::string::npos;
-
-    __builtin_add_overflow(filename.size(), -1, &last_pos);
-
-    // strip all trailing '/'
-    while ((pos = filename.find_last_of('/', last_pos)) == last_pos && pos != 0) {
-        --last_pos;
-    }
-
-    if (pos == 0) {
-        containing_dir = "/";
-    } else if (pos == std::string::npos) {
-        containing_dir = ".";
-    } else {
-        containing_dir = filename.substr(0, pos);
-    }
-
-    return containing_dir;
-}
-
-void fsyncDirectory(const std::string& path) {
-    android::base::unique_fd dir_fd(TEMP_FAILURE_RETRY(open(path.c_str(), O_DIRECTORY | O_RDONLY)));
-
-    if (dir_fd < 0) {
-        LOG(WARNING) << "Could not open dir: " << path << " error: " << strerror(errno);
-        return;
-    }
-
-    if (TEMP_FAILURE_RETRY(fsync(dir_fd)) == -1) {
-        LOG(WARNING) << "Failed to fsync the directory " << path << " error: " << strerror(errno);
-    }
-
-    return;
-}
-
 void add_legacy_key_authorizations(int keyType, keystore::AuthorizationSet* params) {
     using namespace keystore;
     params->push_back(TAG_PURPOSE, KeyPurpose::SIGN);
@@ -125,6 +80,7 @@ void add_legacy_key_authorizations(int keyType, keystore::AuthorizationSet* para
     params->push_back(TAG_DIGEST, Digest::SHA_2_256);
     params->push_back(TAG_DIGEST, Digest::SHA_2_384);
     params->push_back(TAG_DIGEST, Digest::SHA_2_512);
+    params->push_back(TAG_ALL_USERS);
     params->push_back(TAG_NO_AUTH_REQUIRED);
     params->push_back(TAG_ORIGINATION_EXPIRE_DATETIME, LLONG_MAX);
     params->push_back(TAG_USAGE_EXPIRE_DATETIME, LLONG_MAX);
@@ -138,42 +94,3 @@ uid_t get_app_id(uid_t uid) {
 uid_t get_user_id(uid_t uid) {
     return uid / AID_USER;
 }
-
-void log_key_integrity_violation(const char* name, uid_t uid) {
-    if (!__android_log_security()) return;
-    android_log_event_list(SEC_TAG_KEY_INTEGRITY_VIOLATION)
-        << name << int32_t(uid) << LOG_ID_SECURITY;
-}
-
-namespace keystore {
-
-hidl_vec<uint8_t> blob2hidlVec(const Blob& blob) {
-    hidl_vec<uint8_t> result(blob.getValue(), blob.getValue() + blob.getLength());
-    return result;
-}
-
-SecurityLevel flagsToSecurityLevel(int32_t flags) {
-    switch (flags & (KEYSTORE_FLAG_FALLBACK | KEYSTORE_FLAG_STRONGBOX)) {
-    case KEYSTORE_FLAG_FALLBACK:
-    // treating Strongbox flag as "don't care" if Fallback is set
-    case (KEYSTORE_FLAG_FALLBACK | KEYSTORE_FLAG_STRONGBOX):
-        return SecurityLevel::SOFTWARE;
-    case KEYSTORE_FLAG_STRONGBOX:
-        return SecurityLevel::STRONGBOX;
-    default:
-        return SecurityLevel::TRUSTED_ENVIRONMENT;
-    }
-}
-
-uint32_t securityLevelToFlags(SecurityLevel secLevel) {
-    switch (secLevel) {
-    case SecurityLevel::SOFTWARE:
-        return KEYSTORE_FLAG_FALLBACK;
-    case SecurityLevel::STRONGBOX:
-        return KEYSTORE_FLAG_STRONGBOX;
-    default:
-        return 0;
-    }
-}
-
-}  // namespace keystore
