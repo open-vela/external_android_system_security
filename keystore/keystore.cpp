@@ -24,6 +24,7 @@
 #include <openssl/bio.h>
 
 #include <utils/String16.h>
+#include <utils/String8.h>
 
 #include <keystore/IKeystoreService.h>
 
@@ -39,6 +40,7 @@ const char* KeyStore::sMetaDataFile = ".metadata";
 const android::String16 KeyStore::sRSAKeyType("RSA");
 
 using namespace keystore;
+using android::String8;
 
 KeyStore::KeyStore(Entropy* entropy, const km_device_t& device, const km_device_t& fallback,
                    bool allowNewFallback)
@@ -170,7 +172,8 @@ NullOr<android::String8> KeyStore::getBlobFileNameIfExists(const android::String
     // They might be using a granted key.
     auto grant = mGrants.get(uid, alias.string());
     if (grant) {
-        filepath8 = grant->key_file_.c_str();
+        filepath8 = String8::format("%s/%s", grant->owner_dir_name_.c_str(),
+                getKeyNameForUid(String8(grant->alias_.c_str()), grant->owner_uid_, type).c_str());
         if (!access(filepath8.string(), R_OK | W_OK)) return filepath8;
     }
     return {};
@@ -331,11 +334,23 @@ ResponseCode KeyStore::put(const char* filename, Blob* keyBlob, uid_t userId) {
                               mEntropy);
 }
 
+static NullOr<std::tuple<uid_t, std::string>> filename2UidAlias(const std::string& filename);
+
 ResponseCode KeyStore::del(const char* filename, const BlobType type, uid_t userId) {
     Blob keyBlob;
+    auto uidAlias = filename2UidAlias(filename);
+    uid_t uid;
+    std::string alias;
+    if (uidAlias.isOk()) {
+        std::tie(uid, alias) = std::move(uidAlias).value();
+    }
     ResponseCode rc = get(filename, &keyBlob, type, userId);
     if (rc == ResponseCode::VALUE_CORRUPTED) {
         // The file is corrupt, the best we can do is rm it.
+        if (uidAlias.isOk()) {
+            // remove possible grants
+            mGrants.removeAllGrantsToKey(uid, alias);
+        }
         return (unlink(filename) && errno != ENOENT) ?
                 ResponseCode::SYSTEM_ERROR : ResponseCode::NO_ERROR;
     }
@@ -353,8 +368,16 @@ ResponseCode KeyStore::del(const char* filename, const BlobType type, uid_t user
             return ResponseCode::SYSTEM_ERROR;
     }
 
-    return (unlink(filename) && errno != ENOENT) ?
+    rc = (unlink(filename) && errno != ENOENT) ?
             ResponseCode::SYSTEM_ERROR : ResponseCode::NO_ERROR;
+
+    if (rc == ResponseCode::NO_ERROR && keyBlob.getType() != ::TYPE_KEY_CHARACTERISTICS) {
+        // now that we have successfully deleted a key, let's make sure there are no stale grants
+        if (uidAlias.isOk()) {
+            mGrants.removeAllGrantsToKey(uid, alias);
+        }
+    }
+    return rc;
 }
 
 /*
@@ -392,6 +415,29 @@ static void decode_key(char* out, const char* in, size_t length) {
         }
     }
     *out = '\0';
+}
+
+static NullOr<std::tuple<uid_t, std::string>> filename2UidAlias(const std::string& filepath) {
+    auto filenamebase = filepath.find_last_of('/');
+    std::string filename = filenamebase == std::string::npos ? filepath :
+            filepath.substr(filenamebase + 1);
+
+    if (filename[0] == '.') return {};
+
+    auto sep = filename.find('_');
+    if (sep == std::string::npos) return {};
+
+    std::stringstream s(filename.substr(0, sep));
+    uid_t uid;
+    s >> uid;
+    if (!s) return {};
+
+    auto alias = filename.substr(sep + 1);
+
+    std::vector<char> alias_buffer(decode_key_length(alias.c_str(), alias.size()) + 1);
+
+    decode_key(alias_buffer.data(), alias.c_str(), alias.size());
+    return std::tuple<uid_t, std::string>(uid, alias_buffer.data());
 }
 
 ResponseCode KeyStore::list(const android::String8& prefix,
@@ -437,12 +483,16 @@ ResponseCode KeyStore::list(const android::String8& prefix,
     return ResponseCode::NO_ERROR;
 }
 
-std::string KeyStore::addGrant(const char* filename, const char* alias, uid_t granteeUid) {
-    return mGrants.put(granteeUid, alias, filename);
+std::string KeyStore::addGrant(const char* alias, uid_t granterUid, uid_t granteeUid) {
+    return mGrants.put(granteeUid, alias, getUserStateByUid(granterUid)->getUserDirName(),
+                       granterUid);
 }
 
-bool KeyStore::removeGrant(const char* filename, uid_t granteeUid) {
-    return mGrants.removeByFileName(granteeUid, filename);
+bool KeyStore::removeGrant(const char* alias, const uid_t granterUid, const uid_t granteeUid) {
+    return mGrants.removeByFileAlias(granteeUid, granterUid, alias);
+}
+void KeyStore::removeAllGrantsToUid(const uid_t granteeUid) {
+    mGrants.removeAllGrantsToUid(granteeUid);
 }
 
 ResponseCode KeyStore::importKey(const uint8_t* key, size_t keyLen, const char* filename,
