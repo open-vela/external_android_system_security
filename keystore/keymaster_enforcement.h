@@ -19,11 +19,7 @@
 
 #include <stdio.h>
 
-#include <keystore/keymaster_types.h>
-
-#include <list>
-#include <mutex>
-#include <optional>
+#include <keystore/authorization_set.h>
 
 namespace keystore {
 
@@ -37,50 +33,8 @@ class KeymasterEnforcementContext {
      */
 };
 
-class AccessTimeMap {
-  public:
-    explicit AccessTimeMap(uint32_t max_size) : max_size_(max_size) {}
-
-    /* If the key is found, returns true and fills \p last_access_time.  If not found returns
-     * false. */
-    bool LastKeyAccessTime(km_id_t keyid, uint32_t* last_access_time) const;
-
-    /* Updates the last key access time with the currentTime parameter.  Adds the key if
-     * needed, returning false if key cannot be added because list is full. */
-    bool UpdateKeyAccessTime(km_id_t keyid, uint32_t current_time, uint32_t timeout);
-
-  private:
-    mutable std::mutex list_lock_;
-    struct AccessTime {
-        km_id_t keyid;
-        uint32_t access_time;
-        uint32_t timeout;
-    };
-    std::list<AccessTime> last_access_list_;
-    const uint32_t max_size_;
-};
-
-class AccessCountMap {
-  public:
-    explicit AccessCountMap(uint32_t max_size) : max_size_(max_size) {}
-
-    /* If the key is found, returns true and fills \p count.  If not found returns
-     * false. */
-    bool KeyAccessCount(km_id_t keyid, uint32_t* count) const;
-
-    /* Increments key access count, adding an entry if the key has never been used.  Returns
-     * false if the list has reached maximum size. */
-    bool IncrementKeyAccessCount(km_id_t keyid);
-
-  private:
-    mutable std::mutex list_lock_;
-    struct AccessCount {
-        km_id_t keyid;
-        uint64_t access_count;
-    };
-    std::list<AccessCount> access_count_list_;
-    const uint32_t max_size_;
-};
+class AccessTimeMap;
+class AccessCountMap;
 
 class KeymasterEnforcement {
   public:
@@ -97,8 +51,7 @@ class KeymasterEnforcement {
      */
     ErrorCode AuthorizeOperation(const KeyPurpose purpose, const km_id_t keyid,
                                  const AuthorizationSet& auth_set,
-                                 const AuthorizationSet& operation_params,
-                                 const HardwareAuthToken& auth_token, uint64_t op_handle,
+                                 const AuthorizationSet& operation_params, uint64_t op_handle,
                                  bool is_begin_operation);
 
     /**
@@ -108,17 +61,16 @@ class KeymasterEnforcement {
      */
     ErrorCode AuthorizeBegin(const KeyPurpose purpose, const km_id_t keyid,
                              const AuthorizationSet& auth_set,
-                             const AuthorizationSet& operation_params,
-                             NullOr<const HardwareAuthToken&> auth_token);
+                             const AuthorizationSet& operation_params);
 
     /**
      * Iterates through the authorization set and returns the corresponding keymaster error. Will
      * return KM_ERROR_OK if all criteria is met for the given purpose in the authorization set with
      * the given operation params and handle. Used for encrypt, decrypt sign, and verify.
      */
-    ErrorCode AuthorizeUpdate(const AuthorizationSet& auth_set, const HardwareAuthToken& auth_token,
-                              uint64_t op_handle) {
-        return AuthorizeUpdateOrFinish(auth_set, auth_token, op_handle);
+    ErrorCode AuthorizeUpdate(const AuthorizationSet& auth_set,
+                              const AuthorizationSet& operation_params, uint64_t op_handle) {
+        return AuthorizeUpdateOrFinish(auth_set, operation_params, op_handle);
     }
 
     /**
@@ -126,9 +78,9 @@ class KeymasterEnforcement {
      * return KM_ERROR_OK if all criteria is met for the given purpose in the authorization set with
      * the given operation params and handle. Used for encrypt, decrypt sign, and verify.
      */
-    ErrorCode AuthorizeFinish(const AuthorizationSet& auth_set, const HardwareAuthToken& auth_token,
-                              uint64_t op_handle) {
-        return AuthorizeUpdateOrFinish(auth_set, auth_token, op_handle);
+    ErrorCode AuthorizeFinish(const AuthorizationSet& auth_set,
+                              const AuthorizationSet& operation_params, uint64_t op_handle) {
+        return AuthorizeUpdateOrFinish(auth_set, operation_params, op_handle);
     }
 
     /**
@@ -138,7 +90,7 @@ class KeymasterEnforcement {
      *
      * Returns false if an error in the crypto library prevents creation of an ID.
      */
-    static std::optional<km_id_t> CreateKeyId(const hidl_vec<uint8_t>& key_blob);
+    static bool CreateKeyId(const hidl_vec<uint8_t>& key_blob, km_id_t* keyid);
 
     //
     // Methods that must be implemented by subclasses
@@ -169,7 +121,7 @@ class KeymasterEnforcement {
     /*
      * Returns true if the specified auth_token is older than the specified timeout.
      */
-    virtual bool auth_token_timed_out(const HardwareAuthToken& token, uint32_t timeout) const = 0;
+    virtual bool auth_token_timed_out(const hw_auth_token_t& token, uint32_t timeout) const = 0;
 
     /*
      * Get current time in seconds from some starting point.  This value is used to compute relative
@@ -186,26 +138,21 @@ class KeymasterEnforcement {
      * Returns true if the specified auth_token has a valid signature, or if signature validation is
      * not available.
      */
-    virtual bool ValidateTokenSignature(const HardwareAuthToken& token) const = 0;
-
-    /*
-     * Returns true if the device screen is currently locked for the specified user.
-     */
-    virtual bool is_device_locked(int32_t userId) const = 0;
+    virtual bool ValidateTokenSignature(const hw_auth_token_t& token) const = 0;
 
   private:
     ErrorCode AuthorizeUpdateOrFinish(const AuthorizationSet& auth_set,
-                                      const HardwareAuthToken& auth_token, uint64_t op_handle);
+                                      const AuthorizationSet& operation_params, uint64_t op_handle);
 
     bool MinTimeBetweenOpsPassed(uint32_t min_time_between, const km_id_t keyid);
     bool MaxUsesPerBootNotExceeded(const km_id_t keyid, uint32_t max_uses);
-    bool AuthTokenMatches(const AuthorizationSet& auth_set, const HardwareAuthToken& auth_token,
-                          const uint64_t user_secure_id, const int auth_type_index,
-                          const int auth_timeout_index, const uint64_t op_handle,
-                          bool is_begin_operation) const;
+    bool AuthTokenMatches(const AuthorizationSet& auth_set,
+                          const AuthorizationSet& operation_params, const uint64_t user_secure_id,
+                          const int auth_type_index, const int auth_timeout_index,
+                          const uint64_t op_handle, bool is_begin_operation) const;
 
-    AccessTimeMap access_time_map_;
-    AccessCountMap access_count_map_;
+    AccessTimeMap* access_time_map_;
+    AccessCountMap* access_count_map_;
 };
 
 }; /* namespace keystore */

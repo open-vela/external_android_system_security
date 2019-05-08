@@ -23,17 +23,6 @@ namespace android {
 namespace security {
 namespace keymaster {
 
-KeyAttestationApplicationId::KeyAttestationApplicationId() = default;
-
-KeyAttestationApplicationId::KeyAttestationApplicationId(
-        std::unique_ptr<KeyAttestationPackageInfo> package) :
-    packageInfos_(new std::vector<std::unique_ptr<KeyAttestationPackageInfo>>()) {
-    packageInfos_->push_back(std::move(package));
-}
-
-KeyAttestationApplicationId::KeyAttestationApplicationId(PackageInfoVector packages)
-    : packageInfos_(std::make_shared<PackageInfoVector>(std::move(packages))) {}
-
 status_t KeyAttestationApplicationId::writeToParcel(Parcel* parcel) const {
     return parcel->writeParcelableVector(packageInfos_);
 }
