@@ -24,9 +24,6 @@
 
 #include <keystore/keymaster_types.h>
 #include <keystore/keystore_hidl_support.h>
-#include <keystore/keystore_return_types.h>
-
-#include <future>
 
 namespace keystore {
 
@@ -40,8 +37,7 @@ struct Operation {
               KeyCharacteristics&& characteristics_, sp<IBinder> appToken_,
               const hidl_vec<KeyParameter> params_)
         : handle(handle_), keyid(keyid_), purpose(purpose_), device(device_),
-          characteristics(characteristics_), appToken(appToken_), authToken(), verificationToken(),
-          params(params_) {}
+          characteristics(characteristics_), appToken(appToken_), params(params_) {}
     Operation(Operation&&) = default;
     Operation(const Operation&) = delete;
 
@@ -53,8 +49,6 @@ struct Operation {
     sp<Keymaster> device;
     KeyCharacteristics characteristics;
     sp<IBinder> appToken;
-    std::promise<KeyStoreServiceReturnCode> authTokenPromise;
-    std::future<KeyStoreServiceReturnCode> authTokenFuture;
     HardwareAuthToken authToken;
     VerificationToken verificationToken;
     const hidl_vec<KeyParameter> params;
