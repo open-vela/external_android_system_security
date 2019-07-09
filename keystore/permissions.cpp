@@ -18,8 +18,8 @@
 
 #include "permissions.h"
 
-#include <cutils/log.h>
 #include <cutils/sockets.h>
+#include <log/log.h>
 #include <private/android_filesystem_config.h>
 
 #include <selinux/android.h>
@@ -54,9 +54,16 @@ struct user_euid {
     uid_t euid;
 };
 
-user_euid user_euids[] = {
-    {AID_VPN, AID_SYSTEM}, {AID_WIFI, AID_SYSTEM}, {AID_ROOT, AID_SYSTEM},
-    {AID_WIFI, AID_KEYSTORE}, {AID_KEYSTORE, AID_WIFI}
+user_euid user_euids[] = {{AID_VPN, AID_SYSTEM},
+                          {AID_WIFI, AID_SYSTEM},
+                          {AID_ROOT, AID_SYSTEM},
+                          {AID_WIFI, AID_KEYSTORE},
+                          {AID_KEYSTORE, AID_WIFI},
+
+#ifdef GRANT_ROOT_ALL_PERMISSIONS
+                          // Allow VTS tests to act on behalf of the wifi user
+                          {AID_WIFI, AID_ROOT}
+#endif
 };
 
 struct user_perm {
@@ -119,7 +126,7 @@ int configure_selinux() {
 
 static bool keystore_selinux_check_access(uid_t uid, perm_t perm, pid_t spid) {
     audit_data ad;
-    char* sctx = NULL;
+    char* sctx = nullptr;
     const char* selinux_class = "keystore_key";
     const char* str_perm = get_perm_label(perm);
 

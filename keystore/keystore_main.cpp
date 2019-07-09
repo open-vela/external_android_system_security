@@ -17,8 +17,8 @@
 #define LOG_TAG "keystore"
 
 #include <android-base/logging.h>
-#include <android/hidl/manager/1.1/IServiceManager.h>
-#include <android/security/IKeystoreService.h>
+#include <android/hidl/manager/1.2/IServiceManager.h>
+#include <android/security/keystore/IKeystoreService.h>
 #include <android/system/wifi/keystore/1.0/IKeystore.h>
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
@@ -44,14 +44,14 @@
 
 using ::android::sp;
 using ::android::hardware::configureRpcThreadpool;
-using ::android::system::wifi::keystore::V1_0::IKeystore;
-using ::android::system::wifi::keystore::V1_0::implementation::Keystore;
-using ::android::hidl::manager::V1_1::IServiceManager;
 using ::android::hardware::hidl_string;
 using ::android::hardware::hidl_vec;
-using ::android::hardware::keymaster::V4_0::SecurityLevel;
-using ::android::hardware::keymaster::V4_0::HmacSharingParameters;
 using ::android::hardware::keymaster::V4_0::ErrorCode;
+using ::android::hardware::keymaster::V4_0::HmacSharingParameters;
+using ::android::hardware::keymaster::V4_0::SecurityLevel;
+using ::android::hidl::manager::V1_2::IServiceManager;
+using ::android::system::wifi::keystore::V1_0::IKeystore;
+using ::android::system::wifi::keystore::V1_0::implementation::Keystore;
 
 using ::keystore::keymaster::support::Keymaster;
 using ::keystore::keymaster::support::Keymaster3;
@@ -62,7 +62,7 @@ using keystore::KeymasterDevices;
 template <typename Wrapper>
 KeymasterDevices enumerateKeymasterDevices(IServiceManager* serviceManager) {
     KeymasterDevices result;
-    serviceManager->listByInterface(
+    serviceManager->listManifestByInterface(
         Wrapper::WrappedIKeymasterDevice::descriptor, [&](const hidl_vec<hidl_string>& names) {
             auto try_get_device = [&](const auto& name, bool fail_silent) {
                 auto device = Wrapper::WrappedIKeymasterDevice::getService(name);
@@ -108,7 +108,7 @@ KeymasterDevices enumerateKeymasterDevices(IServiceManager* serviceManager) {
 }
 
 KeymasterDevices initializeKeymasters() {
-    auto serviceManager = android::hidl::manager::V1_1::IServiceManager::getService();
+    auto serviceManager = IServiceManager::getService();
     CHECK(serviceManager.get()) << "Failed to get ServiceManager";
     auto result = enumerateKeymasterDevices<Keymaster4>(serviceManager.get());
     auto softKeymaster = result[SecurityLevel::SOFTWARE];
@@ -151,10 +151,11 @@ int main(int argc, char* argv[]) {
     SecurityLevel minimalAllowedSecurityLevelForNewKeys =
         halVersion.majorVersion >= 2 ? SecurityLevel::TRUSTED_ENVIRONMENT : SecurityLevel::SOFTWARE;
 
-    keystore::KeyStore keyStore(kmDevices, minimalAllowedSecurityLevelForNewKeys);
-    keyStore.initialize();
+    android::sp<keystore::KeyStore> keyStore(
+        new keystore::KeyStore(kmDevices, minimalAllowedSecurityLevelForNewKeys));
+    keyStore->initialize();
     android::sp<android::IServiceManager> sm = android::defaultServiceManager();
-    android::sp<keystore::KeyStoreService> service = new keystore::KeyStoreService(&keyStore);
+    android::sp<keystore::KeyStoreService> service = new keystore::KeyStoreService(keyStore);
     android::status_t ret = sm->addService(android::String16("android.security.keystore"), service);
     CHECK(ret == android::OK) << "Couldn't register binder service!";
 
