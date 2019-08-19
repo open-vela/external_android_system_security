@@ -69,6 +69,8 @@ using ::android::security::keystore::KeystoreResponse;
 
 constexpr double kIdRotationPeriod = 30 * 24 * 60 * 60; /* Thirty days, in seconds */
 const char* kTimestampFilePath = "timestamp";
+const int ID_ATTESTATION_REQUEST_GENERIC_INFO = 1 << 0;
+const int ID_ATTESTATION_REQUEST_UNIQUE_DEVICE_ID = 1 << 1;
 
 bool containsTag(const hidl_vec<KeyParameter>& params, Tag tag) {
     return params.end() !=
@@ -367,13 +369,17 @@ Status KeyStoreService::onUserPasswordChanged(int32_t userId, const String16& pa
         return Status::ok();
     }
 
+    const String8 password8(password);
+    // Flush the auth token table to prevent stale tokens from sticking
+    // around.
+    mKeyStore->getAuthTokenTable().Clear();
+
     if (password.size() == 0) {
         ALOGI("Secure lockscreen for user %d removed, deleting encrypted entries", userId);
         mKeyStore->resetUser(userId, true);
         *aidl_return = static_cast<int32_t>(ResponseCode::NO_ERROR);
         return Status::ok();
     } else {
-        const String8 password8(password);
         switch (mKeyStore->getState(userId)) {
         case ::STATE_UNINITIALIZED: {
             // generate master key, encrypt with password, write to file,
@@ -985,8 +991,9 @@ Status KeyStoreService::addAuthToken(const ::std::vector<uint8_t>& authTokenAsVe
     return Status::ok();
 }
 
-bool isDeviceIdAttestationRequested(const KeymasterArguments& params) {
+int isDeviceIdAttestationRequested(const KeymasterArguments& params) {
     const hardware::hidl_vec<KeyParameter>& paramsVec = params.getParameters();
+    int result = 0;
     for (size_t i = 0; i < paramsVec.size(); ++i) {
         switch (paramsVec[i].tag) {
         case Tag::ATTESTATION_ID_BRAND:
@@ -994,15 +1001,18 @@ bool isDeviceIdAttestationRequested(const KeymasterArguments& params) {
         case Tag::ATTESTATION_ID_MANUFACTURER:
         case Tag::ATTESTATION_ID_MODEL:
         case Tag::ATTESTATION_ID_PRODUCT:
+            result |= ID_ATTESTATION_REQUEST_GENERIC_INFO;
+            break;
         case Tag::ATTESTATION_ID_IMEI:
         case Tag::ATTESTATION_ID_MEID:
         case Tag::ATTESTATION_ID_SERIAL:
-            return true;
+            result |= ID_ATTESTATION_REQUEST_UNIQUE_DEVICE_ID;
+            break;
         default:
             continue;
         }
     }
-    return false;
+    return result;
 }
 
 Status KeyStoreService::attestKey(
@@ -1016,7 +1026,15 @@ Status KeyStoreService::attestKey(
 
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
 
-    if (isDeviceIdAttestationRequested(params) && (get_app_id(callingUid) != AID_SYSTEM)) {
+    int needsIdAttestation = isDeviceIdAttestationRequested(params);
+    bool needsUniqueIdAttestation = needsIdAttestation & ID_ATTESTATION_REQUEST_UNIQUE_DEVICE_ID;
+    bool isPrimaryUserSystemUid = (callingUid == AID_SYSTEM);
+    bool isSomeUserSystemUid = (get_app_id(callingUid) == AID_SYSTEM);
+    // Allow system context from any user to request attestation with basic device information,
+    // while only allow system context from user 0 (device owner) to request attestation with
+    // unique device ID.
+    if ((needsIdAttestation && !isSomeUserSystemUid) ||
+        (needsUniqueIdAttestation && !isPrimaryUserSystemUid)) {
         return AIDL_RETURN(KeyStoreServiceReturnCode(ErrorCode::INVALID_ARGUMENT));
     }
 
@@ -1258,8 +1276,7 @@ uid_t KeyStoreService::getEffectiveUid(int32_t targetUid) {
 bool KeyStoreService::checkBinderPermission(perm_t permission, int32_t targetUid) {
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
     pid_t spid = IPCThreadState::self()->getCallingPid();
-    const char* ssid = IPCThreadState::self()->getCallingSid();
-    if (!has_permission(callingUid, permission, spid, ssid)) {
+    if (!has_permission(callingUid, permission, spid)) {
         ALOGW("permission %s denied for %d", get_perm_label(permission), callingUid);
         return false;
     }
@@ -1277,8 +1294,7 @@ bool KeyStoreService::checkBinderPermission(perm_t permission, int32_t targetUid
 bool KeyStoreService::checkBinderPermissionSelfOrSystem(perm_t permission, int32_t targetUid) {
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
     pid_t spid = IPCThreadState::self()->getCallingPid();
-    const char* ssid = IPCThreadState::self()->getCallingSid();
-    if (!has_permission(callingUid, permission, spid, ssid)) {
+    if (!has_permission(callingUid, permission, spid)) {
         ALOGW("permission %s denied for %d", get_perm_label(permission), callingUid);
         return false;
     }
