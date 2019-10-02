@@ -31,9 +31,6 @@ KeyAttestationApplicationId::KeyAttestationApplicationId(
     packageInfos_->push_back(std::move(package));
 }
 
-KeyAttestationApplicationId::KeyAttestationApplicationId(PackageInfoVector packages)
-    : packageInfos_(std::make_shared<PackageInfoVector>(std::move(packages))) {}
-
 status_t KeyAttestationApplicationId::writeToParcel(Parcel* parcel) const {
     return parcel->writeParcelableVector(packageInfos_);
 }
