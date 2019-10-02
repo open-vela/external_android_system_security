@@ -28,37 +28,30 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 
-#include <log/log.h>
+#include <cutils/log.h>
 
 #include "blob.h"
 #include "keystore_utils.h"
 
-namespace keystore {
 
-UserState::UserState(uid_t userId)
-    : mMasterKeyEntry(".masterkey", "user_" + std::to_string(userId), userId, /* masterkey */ true),
-      mUserId(userId), mState(STATE_UNINITIALIZED), mRetry(MAX_RETRY) {}
-
-bool UserState::operator<(const UserState& rhs) const {
-    return getUserId() < rhs.getUserId();
+UserState::UserState(uid_t userId) :
+        mUserId(userId), mState(STATE_UNINITIALIZED), mRetry(MAX_RETRY) {
+    asprintf(&mUserDir, "user_%u", mUserId);
+    asprintf(&mMasterKeyFile, "%s/.masterkey", mUserDir);
 }
 
-bool UserState::operator<(uid_t userId) const {
-    return getUserId() < userId;
-}
-
-bool operator<(uid_t userId, const UserState& rhs) {
-    return userId < rhs.getUserId();
+UserState::~UserState() {
+    free(mUserDir);
+    free(mMasterKeyFile);
 }
 
 bool UserState::initialize() {
-    if ((mkdir(mMasterKeyEntry.user_dir().c_str(), S_IRUSR | S_IWUSR | S_IXUSR) < 0) &&
-        (errno != EEXIST)) {
-        ALOGE("Could not create directory '%s'", mMasterKeyEntry.user_dir().c_str());
+    if ((mkdir(mUserDir, S_IRUSR | S_IWUSR | S_IXUSR) < 0) && (errno != EEXIST)) {
+        ALOGE("Could not create directory '%s'", mUserDir);
         return false;
     }
 
-    if (mMasterKeyEntry.hasKeyBlob()) {
+    if (access(mMasterKeyFile, R_OK) == 0) {
         setState(STATE_LOCKED);
     } else {
         setState(STATE_UNINITIALIZED);
@@ -82,7 +75,7 @@ void UserState::zeroizeMasterKeysInMemory() {
 bool UserState::deleteMasterKey() {
     setState(STATE_UNINITIALIZED);
     zeroizeMasterKeysInMemory();
-    return unlink(mMasterKeyEntry.getKeyBlobPath().c_str()) == 0 || errno == ENOENT;
+    return unlink(mMasterKeyFile) == 0 || errno == ENOENT;
 }
 
 ResponseCode UserState::initialize(const android::String8& pw) {
@@ -97,23 +90,23 @@ ResponseCode UserState::initialize(const android::String8& pw) {
     return ResponseCode::NO_ERROR;
 }
 
-ResponseCode UserState::copyMasterKey(LockedUserState<UserState>* src) {
+ResponseCode UserState::copyMasterKey(UserState* src) {
     if (mState != STATE_UNINITIALIZED) {
         return ResponseCode::SYSTEM_ERROR;
     }
-    if ((*src)->getState() != STATE_NO_ERROR) {
+    if (src->getState() != STATE_NO_ERROR) {
         return ResponseCode::SYSTEM_ERROR;
     }
-    mMasterKey = (*src)->mMasterKey;
+    mMasterKey = src->mMasterKey;
     setupMasterKeys();
     return copyMasterKeyFile(src);
 }
 
-ResponseCode UserState::copyMasterKeyFile(LockedUserState<UserState>* src) {
+ResponseCode UserState::copyMasterKeyFile(UserState* src) {
     /* Copy the master key file to the new user.  Unfortunately we don't have the src user's
      * password so we cannot generate a new file with a new salt.
      */
-    int in = TEMP_FAILURE_RETRY(open((*src)->getMasterKeyFileName().c_str(), O_RDONLY));
+    int in = TEMP_FAILURE_RETRY(open(src->getMasterKeyFileName(), O_RDONLY));
     if (in < 0) {
         return ResponseCode::SYSTEM_ERROR;
     }
@@ -122,8 +115,8 @@ ResponseCode UserState::copyMasterKeyFile(LockedUserState<UserState>* src) {
     if (close(in) != 0) {
         return ResponseCode::SYSTEM_ERROR;
     }
-    int out = TEMP_FAILURE_RETRY(open(mMasterKeyEntry.getKeyBlobPath().c_str(),
-                                      O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR));
+    int out =
+        TEMP_FAILURE_RETRY(open(mMasterKeyFile, O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR));
     if (out < 0) {
         return ResponseCode::SYSTEM_ERROR;
     }
@@ -133,29 +126,22 @@ ResponseCode UserState::copyMasterKeyFile(LockedUserState<UserState>* src) {
     }
     if (outLength != length) {
         ALOGW("blob not fully written %zu != %zu", outLength, length);
-        unlink(mMasterKeyEntry.getKeyBlobPath().c_str());
+        unlink(mMasterKeyFile);
         return ResponseCode::SYSTEM_ERROR;
     }
     return ResponseCode::NO_ERROR;
 }
 
 ResponseCode UserState::writeMasterKey(const android::String8& pw) {
-    std::vector<uint8_t> passwordKey(mMasterKey.size());
+    std::vector<uint8_t> passwordKey(MASTER_KEY_SIZE_BYTES);
     generateKeyFromPassword(passwordKey, pw, mSalt);
-    auto blobType = TYPE_MASTER_KEY_AES256;
-    if (mMasterKey.size() == kAes128KeySizeBytes) {
-        blobType = TYPE_MASTER_KEY;
-    }
-    Blob masterKeyBlob(mMasterKey.data(), mMasterKey.size(), mSalt, sizeof(mSalt), blobType);
-    auto lockedEntry = LockedKeyBlobEntry::get(mMasterKeyEntry);
-    return lockedEntry.writeBlobs(masterKeyBlob, {}, passwordKey, STATE_NO_ERROR);
+    Blob masterKeyBlob(mMasterKey.data(), mMasterKey.size(), mSalt, sizeof(mSalt),
+                       TYPE_MASTER_KEY_AES256);
+    return masterKeyBlob.writeBlob(mMasterKeyFile, passwordKey, STATE_NO_ERROR);
 }
 
 ResponseCode UserState::readMasterKey(const android::String8& pw) {
-
-    auto lockedEntry = LockedKeyBlobEntry::get(mMasterKeyEntry);
-
-    int in = TEMP_FAILURE_RETRY(open(mMasterKeyEntry.getKeyBlobPath().c_str(), O_RDONLY));
+    int in = TEMP_FAILURE_RETRY(open(mMasterKeyFile, O_RDONLY));
     if (in < 0) {
         return ResponseCode::SYSTEM_ERROR;
     }
@@ -172,20 +158,18 @@ ResponseCode UserState::readMasterKey(const android::String8& pw) {
     if (length > SALT_SIZE && rawBlob.info == SALT_SIZE) {
         salt = (uint8_t*)&rawBlob + length - SALT_SIZE;
     } else {
-        salt = nullptr;
+        salt = NULL;
     }
 
     size_t masterKeySize = MASTER_KEY_SIZE_BYTES;
     if (rawBlob.type == TYPE_MASTER_KEY) {
-        masterKeySize = kAes128KeySizeBytes;
+        masterKeySize = SHA1_DIGEST_SIZE_BYTES;
     }
 
     std::vector<uint8_t> passwordKey(masterKeySize);
     generateKeyFromPassword(passwordKey, pw, salt);
-    Blob masterKeyBlob, dummyBlob;
-    ResponseCode response;
-    std::tie(response, masterKeyBlob, dummyBlob) =
-        lockedEntry.readBlobs(passwordKey, STATE_NO_ERROR);
+    Blob masterKeyBlob(rawBlob);
+    ResponseCode response = masterKeyBlob.readBlob(mMasterKeyFile, passwordKey, STATE_NO_ERROR);
     if (response == ResponseCode::SYSTEM_ERROR) {
         return response;
     }
@@ -194,7 +178,7 @@ ResponseCode UserState::readMasterKey(const android::String8& pw) {
 
     if (response == ResponseCode::NO_ERROR && masterKeyBlobLength == masterKeySize) {
         // If salt was missing, generate one and write a new master key file with the salt.
-        if (salt == nullptr) {
+        if (salt == NULL) {
             if (!generateSalt()) {
                 return ResponseCode::SYSTEM_ERROR;
             }
@@ -203,7 +187,6 @@ ResponseCode UserState::readMasterKey(const android::String8& pw) {
         if (response == ResponseCode::NO_ERROR) {
             mMasterKey = std::vector<uint8_t>(masterKeyBlob.getValue(),
                                               masterKeyBlob.getValue() + masterKeyBlob.getLength());
-
             setupMasterKeys();
         }
         return response;
@@ -228,7 +211,7 @@ ResponseCode UserState::readMasterKey(const android::String8& pw) {
 }
 
 bool UserState::reset() {
-    DIR* dir = opendir(mMasterKeyEntry.user_dir().c_str());
+    DIR* dir = opendir(getUserDirName());
     if (!dir) {
         // If the directory doesn't exist then nothing to do.
         if (errno == ENOENT) {
@@ -239,7 +222,7 @@ bool UserState::reset() {
     }
 
     struct dirent* file;
-    while ((file = readdir(dir)) != nullptr) {
+    while ((file = readdir(dir)) != NULL) {
         // skip . and ..
         if (!strcmp(".", file->d_name) || !strcmp("..", file->d_name)) {
             continue;
@@ -254,7 +237,7 @@ bool UserState::reset() {
 void UserState::generateKeyFromPassword(std::vector<uint8_t>& key, const android::String8& pw,
                                         uint8_t* salt) {
     size_t saltSize;
-    if (salt != nullptr) {
+    if (salt != NULL) {
         saltSize = SALT_SIZE;
     } else {
         // Pre-gingerbread used this hardwired salt, readMasterKey will rewrite these when found
@@ -266,7 +249,7 @@ void UserState::generateKeyFromPassword(std::vector<uint8_t>& key, const android
     const EVP_MD* digest = EVP_sha256();
 
     // SHA1 was used prior to increasing the key size
-    if (key.size() == kAes128KeySizeBytes) {
+    if (key.size() == SHA1_DIGEST_SIZE_BYTES) {
         digest = EVP_sha1();
     }
 
@@ -292,37 +275,3 @@ bool UserState::generateMasterKey() {
 void UserState::setupMasterKeys() {
     setState(STATE_NO_ERROR);
 }
-
-LockedUserState<UserState> UserStateDB::getUserState(uid_t userId) {
-    std::unique_lock<std::mutex> lock(locked_state_mutex_);
-    decltype(mMasterKeys.begin()) it;
-    bool inserted;
-    std::tie(it, inserted) = mMasterKeys.emplace(userId, userId);
-    if (inserted) {
-        if (!it->second.initialize()) {
-            /* There's not much we can do if initialization fails. Trying to
-             * unlock the keystore for that user will fail as well, so any
-             * subsequent request for this user will just return SYSTEM_ERROR.
-             */
-            ALOGE("User initialization failed for %u; subsequent operations will fail", userId);
-        }
-    }
-    return get(std::move(lock), &it->second);
-}
-
-LockedUserState<UserState> UserStateDB::getUserStateByUid(uid_t uid) {
-    return getUserState(get_user_id(uid));
-}
-
-LockedUserState<const UserState> UserStateDB::getUserState(uid_t userId) const {
-    std::unique_lock<std::mutex> lock(locked_state_mutex_);
-    auto it = mMasterKeys.find(userId);
-    if (it == mMasterKeys.end()) return {};
-    return get(std::move(lock), &it->second);
-}
-
-LockedUserState<const UserState> UserStateDB::getUserStateByUid(uid_t uid) const {
-    return getUserState(get_user_id(uid));
-}
-
-}  // namespace keystore

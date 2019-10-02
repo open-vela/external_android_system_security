@@ -18,8 +18,6 @@
 #include "operation.h"
 
 #include <algorithm>
-#include <android-base/logging.h>
-#include <mutex>
 
 namespace keystore {
 
@@ -31,22 +29,20 @@ sp<IBinder> OperationMap::addOperation(uint64_t handle, uint64_t keyid, KeyPurpo
                                        KeyCharacteristics&& characteristics,
                                        const hidl_vec<KeyParameter>& params, bool pruneable) {
     sp<IBinder> token = new ::android::BBinder();
-    mMap.emplace(token, std::make_shared<Operation>(handle, keyid, purpose, dev,
-                                                    std::move(characteristics), appToken, params));
+    mMap.emplace(token, Operation(handle, keyid, purpose, dev, std::move(characteristics), appToken,
+                                  params));
     if (pruneable) mLru.push_back(token);
     if (mAppTokenMap.find(appToken) == mAppTokenMap.end()) appToken->linkToDeath(mDeathRecipient);
     mAppTokenMap[appToken].push_back(token);
     return token;
 }
 
-std::shared_ptr<Operation> OperationMap::getOperation(const sp<IBinder>& token) {
+NullOr<const Operation&> OperationMap::getOperation(const sp<IBinder>& token) {
     auto entry = mMap.find(token);
     if (entry == mMap.end()) return {};
 
-    auto op = entry->second;
-
     updateLru(token);
-    return op;
+    return entry->second;
 }
 
 void OperationMap::updateLru(const sp<IBinder>& token) {
@@ -57,18 +53,17 @@ void OperationMap::updateLru(const sp<IBinder>& token) {
     }
 }
 
-std::shared_ptr<Operation> OperationMap::removeOperation(const sp<IBinder>& token,
-                                                         bool wasSuccessful) {
+NullOr<Operation> OperationMap::removeOperation(const sp<IBinder>& token, bool wasSuccessful) {
     auto entry = mMap.find(token);
     if (entry == mMap.end()) return {};
 
-    auto op = entry->second;
-    operationUploader.uploadOpAsProto(*op, wasSuccessful);
+    Operation op = std::move(entry->second);
+    uploadOpAsProto(op, wasSuccessful);
     mMap.erase(entry);
 
     auto lruEntry = std::find(mLru.begin(), mLru.end(), token);
     if (lruEntry != mLru.end()) mLru.erase(lruEntry);
-    removeOperationTracking(token, op->appToken);
+    removeOperationTracking(token, op.appToken);
     return op;
 }
 
@@ -87,10 +82,32 @@ void OperationMap::removeOperationTracking(const sp<IBinder>& token, const sp<IB
     }
 }
 
-sp<IBinder> OperationMap::getOldestPruneableOperation() {
-    if (mLru.size() == 0) return {};
+bool OperationMap::hasPruneableOperation() const {
+    return !mLru.empty();
+}
 
-    return {mLru.front()};
+size_t OperationMap::getPruneableOperationCount() const {
+    return mLru.size();
+}
+
+sp<IBinder> OperationMap::getOldestPruneableOperation() {
+    if (!hasPruneableOperation()) return sp<IBinder>(nullptr);
+    return mLru.front();
+}
+
+void OperationMap::setOperationAuthToken(const sp<IBinder>& token, HardwareAuthToken authToken) {
+    auto entry = mMap.find(token);
+    if (entry == mMap.end()) return;
+
+    entry->second.authToken = std::move(authToken);
+}
+
+void OperationMap::setOperationVerificationToken(const sp<IBinder>& token,
+                                                 VerificationToken verificationToken) {
+    auto entry = mMap.find(token);
+    if (entry == mMap.end()) return;
+
+    entry->second.verificationToken = std::move(verificationToken);
 }
 
 std::vector<sp<IBinder>> OperationMap::getOperationsForToken(const sp<IBinder>& appToken) {

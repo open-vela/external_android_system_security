@@ -29,16 +29,12 @@ class SharedNullableIterator {
     typedef std::shared_ptr<CollectionType> CollectionPtr;
 
     SharedNullableIterator() {}
-    explicit SharedNullableIterator(const std::shared_ptr<CollectionType>& coll) : coll_(coll) {
-        init();
-    }
-    explicit SharedNullableIterator(std::shared_ptr<CollectionType>&& coll) : coll_(coll) {
-        init();
-    }
+    SharedNullableIterator(const std::shared_ptr<CollectionType>& coll) : coll_(coll) { init(); }
+    SharedNullableIterator(std::shared_ptr<CollectionType>&& coll) : coll_(coll) { init(); }
 
     SharedNullableIterator(const SharedNullableIterator& other)
         : coll_(other.coll_), cur_(other.cur_) {}
-    SharedNullableIterator(SharedNullableIterator&& other) noexcept
+    SharedNullableIterator(SharedNullableIterator&& other)
         : coll_(std::move(other.coll_)), cur_(std::move(other.cur_)) {}
 
     SharedNullableIterator& operator++() {
@@ -60,7 +56,7 @@ class SharedNullableIterator {
     bool operator!=(const SharedNullableIterator& other) const { return !(*this == other); }
 
     SharedNullableIterator& operator=(const SharedNullableIterator&) = default;
-    SharedNullableIterator& operator=(SharedNullableIterator&&) noexcept = default;
+    SharedNullableIterator& operator=(SharedNullableIterator&&) = default;
 
   private:
     inline bool is_end() const { return !coll_ || cur_ == coll_->end(); }
