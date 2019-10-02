@@ -70,11 +70,6 @@ using ::android::security::keystore::KeystoreResponse;
 constexpr double kIdRotationPeriod = 30 * 24 * 60 * 60; /* Thirty days, in seconds */
 const char* kTimestampFilePath = "timestamp";
 
-struct BIGNUM_Delete {
-    void operator()(BIGNUM* p) const { BN_free(p); }
-};
-typedef std::unique_ptr<BIGNUM, BIGNUM_Delete> Unique_BIGNUM;
-
 bool containsTag(const hidl_vec<KeyParameter>& params, Tag tag) {
     return params.end() !=
            std::find_if(params.begin(), params.end(),
@@ -123,7 +118,8 @@ KeyStoreServiceReturnCode updateParamsForAttestation(uid_t callingUid, Authoriza
     auto asn1_attestation_id_result = security::gather_attestation_application_id(callingUid);
     if (!asn1_attestation_id_result.isOk()) {
         ALOGE("failed to gather attestation_id");
-        return ErrorCode::ATTESTATION_APPLICATION_ID_MISSING;
+        // Couldn't get attestation ID; just use an empty one rather than failing.
+        asn1_attestation_id_result = std::vector<uint8_t>();
     }
     std::vector<uint8_t>& asn1_attestation_id = asn1_attestation_id_result;
 
@@ -888,7 +884,7 @@ Status KeyStoreService::begin(const sp<IKeystoreOperationResultCallback>& cb,
                [this, cb, dev](OperationResult result_) {
                    if (result_.resultCode.isOk() ||
                        result_.resultCode == ResponseCode::OP_AUTH_NEEDED) {
-                       addOperationDevice(result_.token, dev);
+                       mKeyStore->addOperationDevice(result_.token, dev);
                    }
                    cb->onFinished(result_);
                });
@@ -905,14 +901,14 @@ Status KeyStoreService::update(const ::android::sp<IKeystoreOperationResultCallb
         return AIDL_RETURN(ErrorCode::INVALID_ARGUMENT);
     }
 
-    auto dev = getOperationDevice(token);
+    auto dev = mKeyStore->getOperationDevice(token);
     if (!dev) {
         return AIDL_RETURN(ErrorCode::INVALID_OPERATION_HANDLE);
     }
 
     dev->update(token, params.getParameters(), input, [this, cb, token](OperationResult result_) {
         if (!result_.resultCode.isOk()) {
-            removeOperationDevice(token);
+            mKeyStore->removeOperationDevice(token);
         }
         cb->onFinished(result_);
     });
@@ -930,7 +926,7 @@ Status KeyStoreService::finish(const ::android::sp<IKeystoreOperationResultCallb
         return AIDL_RETURN(ErrorCode::INVALID_ARGUMENT);
     }
 
-    auto dev = getOperationDevice(token);
+    auto dev = mKeyStore->getOperationDevice(token);
     if (!dev) {
         return AIDL_RETURN(ErrorCode::INVALID_OPERATION_HANDLE);
     }
@@ -938,7 +934,7 @@ Status KeyStoreService::finish(const ::android::sp<IKeystoreOperationResultCallb
     dev->finish(token, params.getParameters(), {}, signature, entropy,
                 [this, cb, token](OperationResult result_) {
                     if (!result_.resultCode.isOk()) {
-                        removeOperationDevice(token);
+                        mKeyStore->removeOperationDevice(token);
                     }
                     cb->onFinished(result_);
                 });
@@ -950,12 +946,15 @@ Status KeyStoreService::abort(const ::android::sp<IKeystoreResponseCallback>& cb
                               const ::android::sp<::android::IBinder>& token,
                               int32_t* _aidl_return) {
     KEYSTORE_SERVICE_LOCK;
-    auto dev = getOperationDevice(token);
+    auto dev = mKeyStore->getOperationDevice(token);
     if (!dev) {
         return AIDL_RETURN(ErrorCode::INVALID_OPERATION_HANDLE);
     }
 
-    dev->abort(token, [cb](KeyStoreServiceReturnCode rc) { cb->onFinished(rc); });
+    dev->abort(token, [this, cb, token](KeyStoreServiceReturnCode rc) {
+        mKeyStore->removeOperationDevice(token);
+        cb->onFinished(rc);
+    });
 
     return AIDL_RETURN(ResponseCode::NO_ERROR);
 }
