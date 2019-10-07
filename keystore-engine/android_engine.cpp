@@ -251,11 +251,32 @@ const char* ecdsa_get_key_id(const EC_KEY* ec_key) {
       EC_KEY_get_ex_data(ec_key, g_keystore_engine->ec_key_ex_index()));
 }
 
+struct EVP_PKEY_Delete {
+    void operator()(EVP_PKEY* p) const {
+        EVP_PKEY_free(p);
+    }
+};
+typedef std::unique_ptr<EVP_PKEY, EVP_PKEY_Delete> Unique_EVP_PKEY;
+
+struct RSA_Delete {
+    void operator()(RSA* p) const {
+        RSA_free(p);
+    }
+};
+typedef std::unique_ptr<RSA, RSA_Delete> Unique_RSA;
+
+struct EC_KEY_Delete {
+    void operator()(EC_KEY* ec) const {
+        EC_KEY_free(ec);
+    }
+};
+typedef std::unique_ptr<EC_KEY, EC_KEY_Delete> Unique_EC_KEY;
+
 /* wrap_rsa returns an |EVP_PKEY| that contains an RSA key where the public
  * part is taken from |public_rsa| and the private operations are forwarded to
  * KeyStore and operate on the key named |key_id|. */
 static EVP_PKEY *wrap_rsa(const char *key_id, const RSA *public_rsa) {
-    bssl::UniquePtr<RSA> rsa(RSA_new_method(g_keystore_engine->engine()));
+    Unique_RSA rsa(RSA_new_method(g_keystore_engine->engine()));
     if (rsa.get() == nullptr) {
         return nullptr;
     }
@@ -277,7 +298,7 @@ static EVP_PKEY *wrap_rsa(const char *key_id, const RSA *public_rsa) {
         return nullptr;
     }
 
-    bssl::UniquePtr<EVP_PKEY> result(EVP_PKEY_new());
+    Unique_EVP_PKEY result(EVP_PKEY_new());
     if (result.get() == nullptr ||
         !EVP_PKEY_assign_RSA(result.get(), rsa.get())) {
         return nullptr;
@@ -291,7 +312,7 @@ static EVP_PKEY *wrap_rsa(const char *key_id, const RSA *public_rsa) {
  * part is taken from |public_rsa| and the private operations are forwarded to
  * KeyStore and operate on the key named |key_id|. */
 static EVP_PKEY *wrap_ecdsa(const char *key_id, const EC_KEY *public_ecdsa) {
-    bssl::UniquePtr<EC_KEY> ec(EC_KEY_new_method(g_keystore_engine->engine()));
+    Unique_EC_KEY ec(EC_KEY_new_method(g_keystore_engine->engine()));
     if (ec.get() == nullptr) {
         return nullptr;
     }
@@ -312,7 +333,7 @@ static EVP_PKEY *wrap_ecdsa(const char *key_id, const EC_KEY *public_ecdsa) {
         return nullptr;
     }
 
-    bssl::UniquePtr<EVP_PKEY> result(EVP_PKEY_new());
+    Unique_EVP_PKEY result(EVP_PKEY_new());
     if (result.get() == nullptr ||
         !EVP_PKEY_assign_EC_KEY(result.get(), ec.get())) {
         return nullptr;
@@ -349,7 +370,7 @@ EVP_PKEY* EVP_PKEY_from_keystore(const char* key_id) {
     }
 
     const uint8_t *inp = pubkey;
-    bssl::UniquePtr<EVP_PKEY> pkey(d2i_PUBKEY(nullptr, &inp, pubkey_len));
+    Unique_EVP_PKEY pkey(d2i_PUBKEY(nullptr, &inp, pubkey_len));
     if (pkey.get() == nullptr) {
         ALOGW("Cannot convert pubkey");
         return nullptr;
@@ -358,12 +379,12 @@ EVP_PKEY* EVP_PKEY_from_keystore(const char* key_id) {
     EVP_PKEY *result;
     switch (EVP_PKEY_type(pkey->type)) {
     case EVP_PKEY_RSA: {
-        bssl::UniquePtr<RSA> public_rsa(EVP_PKEY_get1_RSA(pkey.get()));
+        Unique_RSA public_rsa(EVP_PKEY_get1_RSA(pkey.get()));
         result = wrap_rsa(key_id, public_rsa.get());
         break;
     }
     case EVP_PKEY_EC: {
-        bssl::UniquePtr<EC_KEY> public_ecdsa(EVP_PKEY_get1_EC_KEY(pkey.get()));
+        Unique_EC_KEY public_ecdsa(EVP_PKEY_get1_EC_KEY(pkey.get()));
         result = wrap_ecdsa(key_id, public_ecdsa.get());
         break;
     }
