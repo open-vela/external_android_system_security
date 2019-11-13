@@ -205,7 +205,7 @@ namespace security {
 namespace keymaster {
 
 using ::android::status_t;
-using ::keystore::ErrorCode;
+using ::keystore::keymaster::ErrorCode;
 
 ExportResult::ExportResult() : resultCode() {}
 
