@@ -37,7 +37,7 @@ namespace keystore {
 
 UserState::UserState(uid_t userId)
     : mMasterKeyEntry(".masterkey", "user_" + std::to_string(userId), userId, /* masterkey */ true),
-      mUserId(userId), mState(STATE_UNINITIALIZED) {}
+      mUserId(userId), mState(STATE_UNINITIALIZED), mRetry(MAX_RETRY) {}
 
 bool UserState::operator<(const UserState& rhs) const {
     return getUserId() < rhs.getUserId();
@@ -69,6 +69,9 @@ bool UserState::initialize() {
 
 void UserState::setState(State state) {
     mState = state;
+    if (mState == STATE_NO_ERROR || mState == STATE_UNINITIALIZED) {
+        mRetry = MAX_RETRY;
+    }
 }
 
 void UserState::zeroizeMasterKeysInMemory() {
@@ -205,9 +208,23 @@ ResponseCode UserState::readMasterKey(const android::String8& pw) {
         }
         return response;
     }
-
-    LOG(ERROR) << "Invalid password presented";
-    return ResponseCode::WRONG_PASSWORD_0;
+    if (mRetry <= 0) {
+        reset();
+        return ResponseCode::UNINITIALIZED;
+    }
+    --mRetry;
+    switch (mRetry) {
+    case 0:
+        return ResponseCode::WRONG_PASSWORD_0;
+    case 1:
+        return ResponseCode::WRONG_PASSWORD_1;
+    case 2:
+        return ResponseCode::WRONG_PASSWORD_2;
+    case 3:
+        return ResponseCode::WRONG_PASSWORD_3;
+    default:
+        return ResponseCode::WRONG_PASSWORD_3;
+    }
 }
 
 bool UserState::reset() {
