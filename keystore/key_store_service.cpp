@@ -70,11 +70,6 @@ using ::android::security::keystore::KeystoreResponse;
 constexpr double kIdRotationPeriod = 30 * 24 * 60 * 60; /* Thirty days, in seconds */
 const char* kTimestampFilePath = "timestamp";
 
-struct BIGNUM_Delete {
-    void operator()(BIGNUM* p) const { BN_free(p); }
-};
-typedef std::unique_ptr<BIGNUM, BIGNUM_Delete> Unique_BIGNUM;
-
 bool containsTag(const hidl_vec<KeyParameter>& params, Tag tag) {
     return params.end() !=
            std::find_if(params.begin(), params.end(),
@@ -82,7 +77,6 @@ bool containsTag(const hidl_vec<KeyParameter>& params, Tag tag) {
 }
 
 #define AIDL_RETURN(rc) (*_aidl_return = KeyStoreServiceReturnCode(rc).getErrorCode(), Status::ok())
-#define KEYSTORE_SERVICE_LOCK std::lock_guard<std::mutex> keystore_lock(keystoreServiceMutex_)
 
 std::pair<KeyStoreServiceReturnCode, bool> hadFactoryResetSinceIdRotation() {
     struct stat sbuf;
@@ -123,7 +117,8 @@ KeyStoreServiceReturnCode updateParamsForAttestation(uid_t callingUid, Authoriza
     auto asn1_attestation_id_result = security::gather_attestation_application_id(callingUid);
     if (!asn1_attestation_id_result.isOk()) {
         ALOGE("failed to gather attestation_id");
-        return ErrorCode::ATTESTATION_APPLICATION_ID_MISSING;
+        // Couldn't get attestation ID; just use an empty one rather than failing.
+        asn1_attestation_id_result = std::vector<uint8_t>();
     }
     std::vector<uint8_t>& asn1_attestation_id = asn1_attestation_id_result;
 
@@ -146,7 +141,6 @@ KeyStoreServiceReturnCode updateParamsForAttestation(uid_t callingUid, Authoriza
 }  // anonymous namespace
 
 Status KeyStoreService::getState(int32_t userId, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     if (!checkBinderPermission(P_GET_STATE)) {
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
         return Status::ok();
@@ -156,7 +150,6 @@ Status KeyStoreService::getState(int32_t userId, int32_t* aidl_return) {
 }
 
 Status KeyStoreService::get(const String16& name, int32_t uid, ::std::vector<uint8_t>* item) {
-    KEYSTORE_SERVICE_LOCK;
     uid_t targetUid = getEffectiveUid(uid);
     if (!checkBinderPermission(P_GET, targetUid)) {
         // see keystore/keystore.h
@@ -186,7 +179,6 @@ Status KeyStoreService::get(const String16& name, int32_t uid, ::std::vector<uin
 
 Status KeyStoreService::insert(const String16& name, const ::std::vector<uint8_t>& item,
                                int targetUid, int32_t flags, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     targetUid = getEffectiveUid(targetUid);
     KeyStoreServiceReturnCode result =
         checkBinderPermissionAndKeystoreState(P_INSERT, targetUid, flags & KEYSTORE_FLAG_ENCRYPTED);
@@ -212,7 +204,6 @@ Status KeyStoreService::insert(const String16& name, const ::std::vector<uint8_t
 }
 
 Status KeyStoreService::del(const String16& name, int targetUid, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     targetUid = getEffectiveUid(targetUid);
     if (!checkBinderPermission(P_DELETE, targetUid)) {
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
@@ -233,7 +224,6 @@ Status KeyStoreService::del(const String16& name, int targetUid, int32_t* aidl_r
 }
 
 Status KeyStoreService::exist(const String16& name, int targetUid, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     targetUid = getEffectiveUid(targetUid);
     if (!checkBinderPermission(P_EXIST, targetUid)) {
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
@@ -249,7 +239,6 @@ Status KeyStoreService::exist(const String16& name, int targetUid, int32_t* aidl
 
 Status KeyStoreService::list(const String16& prefix, int32_t targetUid,
                              ::std::vector<::android::String16>* matches) {
-    KEYSTORE_SERVICE_LOCK;
     targetUid = getEffectiveUid(targetUid);
     if (!checkBinderPermission(P_LIST, targetUid)) {
         return Status::fromServiceSpecificError(
@@ -288,7 +277,6 @@ Status KeyStoreService::list(const String16& prefix, int32_t targetUid,
  */
 Status KeyStoreService::listUidsOfAuthBoundKeys(std::vector<std::string>* uidsOut,
                                                 int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     const int32_t callingUid = IPCThreadState::self()->getCallingUid();
     const int32_t userId = get_user_id(callingUid);
     const int32_t appId = get_app_id(callingUid);
@@ -351,22 +339,8 @@ Status KeyStoreService::listUidsOfAuthBoundKeys(std::vector<std::string>* uidsOu
     return Status::ok();
 }
 
-Status KeyStoreService::reset(int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
-    if (!checkBinderPermission(P_RESET)) {
-        *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
-        return Status::ok();
-    }
-
-    uid_t callingUid = IPCThreadState::self()->getCallingUid();
-    mKeyStore->resetUser(get_user_id(callingUid), false);
-    *aidl_return = static_cast<int32_t>(ResponseCode::NO_ERROR);
-    return Status::ok();
-}
-
 Status KeyStoreService::onUserPasswordChanged(int32_t userId, const String16& password,
                                               int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     if (!checkBinderPermission(P_PASSWORD)) {
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
         return Status::ok();
@@ -404,7 +378,6 @@ Status KeyStoreService::onUserPasswordChanged(int32_t userId, const String16& pa
 }
 
 Status KeyStoreService::onUserAdded(int32_t userId, int32_t parentId, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     if (!checkBinderPermission(P_USER_CHANGED)) {
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
         return Status::ok();
@@ -430,7 +403,6 @@ Status KeyStoreService::onUserAdded(int32_t userId, int32_t parentId, int32_t* a
 }
 
 Status KeyStoreService::onUserRemoved(int32_t userId, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     if (!checkBinderPermission(P_USER_CHANGED)) {
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
         return Status::ok();
@@ -442,7 +414,6 @@ Status KeyStoreService::onUserRemoved(int32_t userId, int32_t* aidl_return) {
 }
 
 Status KeyStoreService::lock(int32_t userId, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     if (!checkBinderPermission(P_LOCK)) {
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
         return Status::ok();
@@ -462,7 +433,6 @@ Status KeyStoreService::lock(int32_t userId, int32_t* aidl_return) {
 }
 
 Status KeyStoreService::unlock(int32_t userId, const String16& pw, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     if (!checkBinderPermission(P_UNLOCK)) {
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
         return Status::ok();
@@ -493,7 +463,6 @@ Status KeyStoreService::unlock(int32_t userId, const String16& pw, int32_t* aidl
 }
 
 Status KeyStoreService::isEmpty(int32_t userId, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     if (!checkBinderPermission(P_IS_EMPTY)) {
         *aidl_return = static_cast<int32_t>(false);
         return Status::ok();
@@ -505,7 +474,6 @@ Status KeyStoreService::isEmpty(int32_t userId, int32_t* aidl_return) {
 
 Status KeyStoreService::grant(const String16& name, int32_t granteeUid,
                               ::android::String16* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
     auto result =
         checkBinderPermissionAndKeystoreState(P_GRANT, /*targetUid=*/-1, /*checkUnlocked=*/false);
@@ -526,7 +494,6 @@ Status KeyStoreService::grant(const String16& name, int32_t granteeUid,
 }
 
 Status KeyStoreService::ungrant(const String16& name, int32_t granteeUid, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
     KeyStoreServiceReturnCode result =
         checkBinderPermissionAndKeystoreState(P_GRANT, /*targetUid=*/-1, /*checkUnlocked=*/false);
@@ -547,7 +514,6 @@ Status KeyStoreService::ungrant(const String16& name, int32_t granteeUid, int32_
 }
 
 Status KeyStoreService::getmtime(const String16& name, int32_t uid, int64_t* time) {
-    KEYSTORE_SERVICE_LOCK;
     uid_t targetUid = getEffectiveUid(uid);
     if (!checkBinderPermission(P_GET, targetUid)) {
         ALOGW("permission denied for %d: getmtime", targetUid);
@@ -586,13 +552,11 @@ Status KeyStoreService::getmtime(const String16& name, int32_t uid, int64_t* tim
 }
 
 Status KeyStoreService::is_hardware_backed(const String16& keyType, int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     *aidl_return = static_cast<int32_t>(mKeyStore->isHardwareBacked(keyType) ? 1 : 0);
     return Status::ok();
 }
 
 Status KeyStoreService::clear_uid(int64_t targetUid64, int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     uid_t targetUid = getEffectiveUid(targetUid64);
     if (!checkBinderPermissionSelfOrSystem(P_CLEAR_UID, targetUid)) {
         return AIDL_RETURN(ResponseCode::PERMISSION_DENIED);
@@ -632,7 +596,6 @@ Status KeyStoreService::clear_uid(int64_t targetUid64, int32_t* _aidl_return) {
 Status KeyStoreService::addRngEntropy(
     const ::android::sp<::android::security::keystore::IKeystoreResponseCallback>& cb,
     const ::std::vector<uint8_t>& entropy, int32_t flags, int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     auto device = mKeyStore->getDevice(flagsToSecurityLevel(flags));
     if (!device) {
         return AIDL_RETURN(ErrorCode::HARDWARE_TYPE_UNAVAILABLE);
@@ -649,7 +612,6 @@ Status KeyStoreService::generateKey(
     const ::android::sp<::android::security::keystore::IKeystoreKeyCharacteristicsCallback>& cb,
     const String16& name, const KeymasterArguments& params, const ::std::vector<uint8_t>& entropy,
     int uid, int flags, int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     // TODO(jbires): remove this getCallingUid call upon implementation of b/25646100
     uid_t originalUid = IPCThreadState::self()->getCallingUid();
     uid = getEffectiveUid(uid);
@@ -711,7 +673,6 @@ Status KeyStoreService::getKeyCharacteristics(
     const String16& name, const ::android::security::keymaster::KeymasterBlob& clientId,
     const ::android::security::keymaster::KeymasterBlob& appData, int32_t uid,
     int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
 
     uid_t targetUid = getEffectiveUid(uid);
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
@@ -758,7 +719,6 @@ Status KeyStoreService::importKey(
     const ::android::sp<::android::security::keystore::IKeystoreKeyCharacteristicsCallback>& cb,
     const String16& name, const KeymasterArguments& params, int32_t format,
     const ::std::vector<uint8_t>& keyData, int uid, int flags, int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     uid = getEffectiveUid(uid);
     auto logOnScopeExit = android::base::make_scope_guard([&] {
         if (__android_log_security()) {
@@ -815,7 +775,6 @@ Status KeyStoreService::exportKey(
     const ::android::security::keymaster::KeymasterBlob& clientId,
     const ::android::security::keymaster::KeymasterBlob& appData, int32_t uid,
     int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
 
     uid_t targetUid = getEffectiveUid(uid);
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
@@ -851,7 +810,6 @@ Status KeyStoreService::begin(const sp<IKeystoreOperationResultCallback>& cb,
                               bool pruneable, const KeymasterArguments& params,
                               const ::std::vector<uint8_t>& entropy, int32_t uid,
                               int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
     uid_t targetUid = getEffectiveUid(uid);
     if (!is_granted_to(callingUid, targetUid)) {
@@ -900,7 +858,6 @@ Status KeyStoreService::update(const ::android::sp<IKeystoreOperationResultCallb
                                const ::android::sp<::android::IBinder>& token,
                                const ::android::security::keymaster::KeymasterArguments& params,
                                const ::std::vector<uint8_t>& input, int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     if (!checkAllowedOperationParams(params.getParameters())) {
         return AIDL_RETURN(ErrorCode::INVALID_ARGUMENT);
     }
@@ -923,9 +880,9 @@ Status KeyStoreService::update(const ::android::sp<IKeystoreOperationResultCallb
 Status KeyStoreService::finish(const ::android::sp<IKeystoreOperationResultCallback>& cb,
                                const ::android::sp<::android::IBinder>& token,
                                const ::android::security::keymaster::KeymasterArguments& params,
+                               const ::std::vector<uint8_t>& input,
                                const ::std::vector<uint8_t>& signature,
                                const ::std::vector<uint8_t>& entropy, int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     if (!checkAllowedOperationParams(params.getParameters())) {
         return AIDL_RETURN(ErrorCode::INVALID_ARGUMENT);
     }
@@ -935,7 +892,7 @@ Status KeyStoreService::finish(const ::android::sp<IKeystoreOperationResultCallb
         return AIDL_RETURN(ErrorCode::INVALID_OPERATION_HANDLE);
     }
 
-    dev->finish(token, params.getParameters(), {}, signature, entropy,
+    dev->finish(token, params.getParameters(), input, signature, entropy,
                 [this, cb, token](OperationResult result_) {
                     mKeyStore->removeOperationDevice(token);
                     cb->onFinished(result_);
@@ -947,7 +904,6 @@ Status KeyStoreService::finish(const ::android::sp<IKeystoreOperationResultCallb
 Status KeyStoreService::abort(const ::android::sp<IKeystoreResponseCallback>& cb,
                               const ::android::sp<::android::IBinder>& token,
                               int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     auto dev = mKeyStore->getOperationDevice(token);
     if (!dev) {
         return AIDL_RETURN(ErrorCode::INVALID_OPERATION_HANDLE);
@@ -963,7 +919,6 @@ Status KeyStoreService::abort(const ::android::sp<IKeystoreResponseCallback>& cb
 
 Status KeyStoreService::addAuthToken(const ::std::vector<uint8_t>& authTokenAsVector,
                                      int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
 
     // TODO(swillden): When gatekeeper and fingerprint are ready, this should be updated to
     // receive a HardwareAuthToken, rather than an opaque byte array.
@@ -1014,7 +969,6 @@ bool isDeviceIdAttestationRequested(const KeymasterArguments& params) {
 Status KeyStoreService::attestKey(
     const ::android::sp<::android::security::keystore::IKeystoreCertificateChainCallback>& cb,
     const String16& name, const KeymasterArguments& params, int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     // check null output if method signature is updated and return ErrorCode::OUTPUT_PARAMETER_NULL
     if (!checkAllowedOperationParams(params.getParameters())) {
         return AIDL_RETURN(ErrorCode::INVALID_ARGUMENT);
@@ -1074,7 +1028,6 @@ Status KeyStoreService::attestKey(
 Status KeyStoreService::attestDeviceIds(
     const ::android::sp<::android::security::keystore::IKeystoreCertificateChainCallback>& cb,
     const KeymasterArguments& params, int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     // check null output if method signature is updated and return ErrorCode::OUTPUT_PARAMETER_NULL
 
     if (!checkAllowedOperationParams(params.getParameters())) {
@@ -1167,7 +1120,6 @@ Status KeyStoreService::attestDeviceIds(
 }
 
 Status KeyStoreService::onDeviceOffBody(int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     // TODO(tuckeris): add permission check.  This should be callable from ClockworkHome only.
     mKeyStore->getAuthTokenTable().onDeviceOffBody();
     *aidl_return = static_cast<int32_t>(ResponseCode::NO_ERROR);
@@ -1180,7 +1132,6 @@ Status KeyStoreService::importWrappedKey(
     const ::android::String16& wrappingKeyAlias, const ::std::vector<uint8_t>& maskingKey,
     const KeymasterArguments& params, int64_t rootSid, int64_t fingerprintSid,
     int32_t* _aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
 
     uid_t callingUid = IPCThreadState::self()->getCallingUid();
 
@@ -1230,19 +1181,16 @@ Status KeyStoreService::presentConfirmationPrompt(const sp<IBinder>& listener,
                                                   const ::std::vector<uint8_t>& extraData,
                                                   const String16& locale, int32_t uiOptionsAsFlags,
                                                   int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     return mKeyStore->getConfirmationManager().presentConfirmationPrompt(
         listener, promptText, extraData, locale, uiOptionsAsFlags, aidl_return);
 }
 
 Status KeyStoreService::cancelConfirmationPrompt(const sp<IBinder>& listener,
                                                  int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     return mKeyStore->getConfirmationManager().cancelConfirmationPrompt(listener, aidl_return);
 }
 
 Status KeyStoreService::isConfirmationPromptSupported(bool* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     return mKeyStore->getConfirmationManager().isConfirmationPromptSupported(aidl_return);
 }
 
@@ -1360,7 +1308,6 @@ bool KeyStoreService::checkAllowedOperationParams(const hidl_vec<KeyParameter>& 
 
 Status KeyStoreService::onKeyguardVisibilityChanged(bool isShowing, int32_t userId,
                                                     int32_t* aidl_return) {
-    KEYSTORE_SERVICE_LOCK;
     mKeyStore->getEnforcementPolicy().set_device_locked(isShowing, userId);
     *aidl_return = static_cast<int32_t>(ResponseCode::NO_ERROR);
 
