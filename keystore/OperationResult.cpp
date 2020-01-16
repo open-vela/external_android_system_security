@@ -29,8 +29,8 @@ namespace android {
 namespace security {
 namespace keymaster {
 
-using keystore::keymaster::ErrorCode;
 using ::android::status_t;
+using ::keystore::ErrorCode;
 
 OperationResult::OperationResult() : resultCode(), token(), handle(0), inputConsumed(0), data() {}
 
@@ -46,13 +46,19 @@ status_t OperationResult::readFromParcel(const Parcel* inn) {
 }
 
 status_t OperationResult::writeToParcel(Parcel* out) const {
-    out->writeInt32(resultCode);
+    out->writeInt32(resultCode.getErrorCode());
     out->writeStrongBinder(token);
     out->writeInt64(handle);
     out->writeInt32(inputConsumed);
     keystore::writeKeymasterBlob(data, out);
     keystore::writeParamSetToParcel(outParams, out);
     return OK;
+}
+
+OperationResult operationFailed(const ::keystore::KeyStoreServiceReturnCode& error) {
+    OperationResult opResult = {};
+    opResult.resultCode = error;
+    return opResult;
 }
 
 }  // namespace keymaster
