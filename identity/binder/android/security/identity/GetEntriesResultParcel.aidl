@@ -1,5 +1,5 @@
-/**
- * Copyright (c) 2015, The Android Open Source Project
+/*
+ * Copyright (c) 2019, The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,7 +14,16 @@
  * limitations under the License.
  */
 
-package android.security;
+package android.security.identity;
 
-/* @hide */
-parcelable KeystoreArguments cpp_header "keystore/KeystoreArguments.h";
+import android.security.identity.ResultNamespaceParcel;
+
+/**
+ * @hide
+ */
+parcelable GetEntriesResultParcel {
+    ResultNamespaceParcel[] resultNamespaces;
+    byte[] deviceNameSpaces;
+    byte[] mac;
+    byte[] staticAuthenticationData;
+}

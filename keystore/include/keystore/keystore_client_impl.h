@@ -17,11 +17,13 @@
 
 #include "keystore_client.h"
 
+#include <future>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
-#include <android/security/IKeystoreService.h>
+#include <android/security/keystore/IKeystoreService.h>
 #include <binder/IBinder.h>
 #include <binder/IServiceManager.h>
 #include <utils/StrongPointer.h>
@@ -74,12 +76,16 @@ class KeystoreClientImpl : public KeystoreClient {
                                              std::string* output_data) override;
     KeyStoreNativeReturnCode finishOperation(uint64_t handle,
                                              const keystore::AuthorizationSet& input_parameters,
+                                             const std::string& input_data,
                                              const std::string& signature_to_verify,
                                              keystore::AuthorizationSet* output_parameters,
                                              std::string* output_data) override;
     KeyStoreNativeReturnCode abortOperation(uint64_t handle) override;
     bool doesKeyExist(const std::string& key_name) override;
     bool listKeys(const std::string& prefix, std::vector<std::string>* key_name_list) override;
+    bool listKeysOfUid(const std::string& prefix, int uid,
+                       std::vector<std::string>* key_name_list) override;
+    std::optional<std::vector<uint8_t>> getKey(const std::string& alias, int uid) override;
 
   private:
     // Returns an available virtual operation handle.
@@ -109,7 +115,7 @@ class KeystoreClientImpl : public KeystoreClient {
 
     android::sp<android::IServiceManager> service_manager_;
     android::sp<android::IBinder> keystore_binder_;
-    android::sp<android::security::IKeystoreService> keystore_;
+    android::sp<android::security::keystore::IKeystoreService> keystore_;
     uint64_t next_virtual_handle_ = 1;
     std::map<uint64_t, android::sp<android::IBinder>> active_operations_;
 

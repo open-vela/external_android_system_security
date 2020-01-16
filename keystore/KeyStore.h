@@ -18,46 +18,72 @@
 #define KEYSTORE_KEYSTORE_H_
 
 #include <android/hardware/keymaster/3.0/IKeymasterDevice.h>
-#include <keymasterV4_0/Keymaster.h>
+#include <keymasterV4_1/Keymaster.h>
 #include <utils/Vector.h>
 
 #include <keystore/keymaster_types.h>
 
+#include "auth_token_table.h"
 #include "blob.h"
+#include "confirmation_manager.h"
 #include "grant_store.h"
+#include "keymaster_worker.h"
+#include "keystore_keymaster_enforcement.h"
+#include "operation.h"
 #include "user_state.h"
+
+#include <array>
+#include <optional>
+#include <tuple>
 
 namespace keystore {
 
 using ::android::sp;
 using keymaster::support::Keymaster;
 
-class KeymasterDevices : public std::array<sp<Keymaster>, 3> {
+template <typename T, size_t count> class Devices : public std::array<T, count> {
   public:
-    sp<Keymaster>& operator[](SecurityLevel secLevel);
-    sp<Keymaster> operator[](SecurityLevel secLevel) const;
+    T& operator[](SecurityLevel secLevel) {
+        static_assert(uint32_t(SecurityLevel::SOFTWARE) == 0 &&
+                          uint32_t(SecurityLevel::TRUSTED_ENVIRONMENT) == 1 &&
+                          uint32_t(SecurityLevel::STRONGBOX) == 2,
+                      "Numeric values of security levels have changed");
+        return std::array<T, count>::at(static_cast<uint32_t>(secLevel));
+    }
+    T operator[](SecurityLevel secLevel) const {
+        if (static_cast<uint32_t>(secLevel) > static_cast<uint32_t>(SecurityLevel::STRONGBOX)) {
+            LOG(ERROR) << "Invalid security level requested";
+            return {};
+        }
+        return (*const_cast<Devices*>(this))[secLevel];
+    }
 };
 
-class KeyStore {
+}  // namespace keystore
+
+namespace std {
+template <typename T, size_t count> struct tuple_size<keystore::Devices<T, count>> {
+  public:
+    static constexpr size_t value = std::tuple_size<std::array<T, count>>::value;
+};
+}  // namespace std
+
+namespace keystore {
+
+using KeymasterWorkers = Devices<std::shared_ptr<KeymasterWorker>, 3>;
+using KeymasterDevices = Devices<sp<Keymaster>, 3>;
+
+class KeyStore : public ::android::IBinder::DeathRecipient {
   public:
     KeyStore(const KeymasterDevices& kmDevices,
              SecurityLevel minimalAllowedSecurityLevelForNewKeys);
     ~KeyStore();
 
-    sp<Keymaster> getDevice(SecurityLevel securityLevel) const { return mKmDevices[securityLevel]; }
-
-    std::pair<sp<Keymaster>, SecurityLevel> getMostSecureDevice() const {
-        SecurityLevel level = SecurityLevel::STRONGBOX;
-        do {
-            if (mKmDevices[level].get()) {
-                return {mKmDevices[level], level};
-            }
-            level = static_cast<SecurityLevel>(static_cast<uint32_t>(level) - 1);
-        } while (level != SecurityLevel::SOFTWARE);
-        return {nullptr, SecurityLevel::SOFTWARE};
+    std::shared_ptr<KeymasterWorker> getDevice(SecurityLevel securityLevel) const {
+        return mKmDevices[securityLevel];
     }
 
-    sp<Keymaster> getFallbackDevice() const {
+    std::shared_ptr<KeymasterWorker> getFallbackDevice() const {
         // we only return the fallback device if the creation of new fallback key blobs is
         // allowed. (also see getDevice below)
         if (mAllowNewFallback) {
@@ -67,11 +93,13 @@ class KeyStore {
         }
     }
 
-    sp<Keymaster> getDevice(const Blob& blob) { return mKmDevices[blob.getSecurityLevel()]; }
+    std::shared_ptr<KeymasterWorker> getDevice(const Blob& blob) {
+        return mKmDevices[blob.getSecurityLevel()];
+    }
 
     ResponseCode initialize();
 
-    State getState(uid_t userId) { return getUserState(userId)->getState(); }
+    State getState(uid_t userId) { return mUserStateDB.getUserState(userId)->getState(); }
 
     ResponseCode initializeUser(const android::String8& pw, uid_t userId);
 
@@ -79,14 +107,9 @@ class KeyStore {
     ResponseCode writeMasterKey(const android::String8& pw, uid_t userId);
     ResponseCode readMasterKey(const android::String8& pw, uid_t userId);
 
-    android::String8 getKeyName(const android::String8& keyName, const BlobType type);
-    android::String8 getKeyNameForUid(const android::String8& keyName, uid_t uid,
-                                      const BlobType type);
-    android::String8 getKeyNameForUidWithDir(const android::String8& keyName, uid_t uid,
-                                             const BlobType type);
-    NullOr<android::String8> getBlobFileNameIfExists(const android::String8& alias, uid_t uid,
-                                                     const BlobType type);
-
+    LockedKeyBlobEntry getLockedBlobEntryIfNotExists(const std::string& alias, uid_t uid);
+    std::optional<KeyBlobEntry> getBlobEntryIfExists(const std::string& alias, uid_t uid);
+    LockedKeyBlobEntry getLockedBlobEntryIfExists(const std::string& alias, uid_t uid);
     /*
      * Delete entries owned by userId. If keepUnencryptedEntries is true
      * then only encrypted entries will be removed, otherwise all entries will
@@ -97,43 +120,45 @@ class KeyStore {
 
     void lock(uid_t userId);
 
-    ResponseCode get(const char* filename, Blob* keyBlob, const BlobType type, uid_t userId);
-    ResponseCode put(const char* filename, Blob* keyBlob, uid_t userId);
-    ResponseCode del(const char* filename, const BlobType type, uid_t userId);
-    ResponseCode list(const android::String8& prefix, android::Vector<android::String16>* matches,
-                      uid_t userId);
+    std::tuple<ResponseCode, Blob, Blob> get(const LockedKeyBlobEntry& blobfile);
+    ResponseCode put(const LockedKeyBlobEntry& blobfile, Blob keyBlob, Blob characteristicsBlob);
+    ResponseCode del(const LockedKeyBlobEntry& blobfile);
 
-    std::string addGrant(const char* alias, uid_t granterUid, uid_t granteeUid);
-    bool removeGrant(const char* alias, const uid_t granterUid, const uid_t granteeUid);
+    std::string addGrant(const LockedKeyBlobEntry& blobfile, uid_t granteeUid);
+    bool removeGrant(const LockedKeyBlobEntry& blobfile, const uid_t granteeUid);
     void removeAllGrantsToUid(const uid_t granteeUid);
 
-    ResponseCode importKey(const uint8_t* key, size_t keyLen, const char* filename, uid_t userId,
-                           int32_t flags);
+    ResponseCode importKey(const uint8_t* key, size_t keyLen, const LockedKeyBlobEntry& blobfile,
+                           uid_t userId, int32_t flags);
 
     bool isHardwareBacked(const android::String16& keyType) const;
 
-    ResponseCode getKeyForName(Blob* keyBlob, const android::String8& keyName, const uid_t uid,
-                               const BlobType type);
+    std::tuple<ResponseCode, Blob, Blob, LockedKeyBlobEntry>
+    getKeyForName(const android::String8& keyName, const uid_t uid, const BlobType type);
 
-    /**
-     * Returns any existing UserState or creates it if it doesn't exist.
-     */
-    UserState* getUserState(uid_t userId);
+    void binderDied(const ::android::wp<IBinder>& who) override;
 
-    /**
-     * Returns any existing UserState or creates it if it doesn't exist.
-     */
-    UserState* getUserStateByUid(uid_t uid);
+    UserStateDB& getUserStateDB() { return mUserStateDB; }
+    AuthTokenTable& getAuthTokenTable() { return mAuthTokenTable; }
+    KeystoreKeymasterEnforcement& getEnforcementPolicy() { return mEnforcementPolicy; }
+    ConfirmationManager& getConfirmationManager() { return *mConfirmationManager; }
 
-    /**
-     * Returns NULL if the UserState doesn't already exist.
-     */
-    const UserState* getUserState(uid_t userId) const;
-
-    /**
-     * Returns NULL if the UserState doesn't already exist.
-     */
-    const UserState* getUserStateByUid(uid_t uid) const;
+    void addOperationDevice(sp<IBinder> token, std::shared_ptr<KeymasterWorker> dev) {
+        std::lock_guard<std::mutex> lock(operationDeviceMapMutex_);
+        operationDeviceMap_.emplace(std::move(token), std::move(dev));
+    }
+    std::shared_ptr<KeymasterWorker> getOperationDevice(const sp<IBinder>& token) {
+        std::lock_guard<std::mutex> lock(operationDeviceMapMutex_);
+        auto it = operationDeviceMap_.find(token);
+        if (it != operationDeviceMap_.end()) {
+            return it->second;
+        }
+        return {};
+    }
+    void removeOperationDevice(const sp<IBinder>& token) {
+        std::lock_guard<std::mutex> lock(operationDeviceMapMutex_);
+        operationDeviceMap_.erase(token);
+    }
 
   private:
     static const char* kOldMasterKey;
@@ -141,10 +166,14 @@ class KeyStore {
     static const android::String16 kRsaKeyType;
     static const android::String16 kEcKeyType;
 
-    KeymasterDevices mKmDevices;
+    KeymasterWorkers mKmDevices;
+
     bool mAllowNewFallback;
 
-    android::Vector<UserState*> mMasterKeys;
+    UserStateDB mUserStateDB;
+    AuthTokenTable mAuthTokenTable;
+    KeystoreKeymasterEnforcement mEnforcementPolicy;
+    sp<ConfirmationManager> mConfirmationManager;
 
     ::keystore::GrantStore mGrants;
 
@@ -155,20 +184,15 @@ class KeyStore {
     /**
      * Upgrade the key from the current version to whatever is newest.
      */
-    bool upgradeBlob(const char* filename, Blob* blob, const uint8_t oldVersion,
-                     const BlobType type, uid_t uid);
-
-    /**
-     * Takes a blob that is an PEM-encoded RSA key as a byte array and converts it to a DER-encoded
-     * PKCS#8 for import into a keymaster.  Then it overwrites the original blob with the new blob
-     * format that is returned from the keymaster.
-     */
-    ResponseCode importBlobAsKey(Blob* blob, const char* filename, uid_t uid);
+    bool upgradeBlob(Blob* blob, const uint8_t oldVersion);
 
     void readMetaData();
     void writeMetaData();
 
     bool upgradeKeystore();
+
+    std::mutex operationDeviceMapMutex_;
+    std::map<sp<IBinder>, std::shared_ptr<KeymasterWorker>> operationDeviceMap_;
 };
 
 }  // namespace keystore
