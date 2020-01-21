@@ -21,13 +21,14 @@
 #include <keystore/KeyCharacteristics.h>
 #include <keystore/KeymasterBlob.h>
 #include <keystore/KeymasterCertificateChain.h>
+#include <keystore/KeystoreArg.h>
 #include <keystore/keymaster_types.h>
 #include <keystore/keystore_hidl_support.h>
 
 namespace keystore {
 
 // reads byte[]
-hidl_vec<uint8_t> readKeymasterBlob(const android::Parcel& in) {
+hidl_vec<uint8_t> readKeymasterBlob(const android::Parcel& in, bool inPlace) {
 
     ssize_t length = in.readInt32();
     if (length <= 0) {
@@ -37,7 +38,7 @@ hidl_vec<uint8_t> readKeymasterBlob(const android::Parcel& in) {
     const void* buf = in.readInplace(length);
     if (!buf) return {};
 
-    return blob2hidlVec(reinterpret_cast<const uint8_t*>(buf), size_t(length));
+    return blob2hidlVec(reinterpret_cast<const uint8_t*>(buf), size_t(length), inPlace);
 }
 
 android::status_t writeKeymasterBlob(const hidl_vec<uint8_t>& blob, android::Parcel* out) {
@@ -205,7 +206,7 @@ namespace security {
 namespace keymaster {
 
 using ::android::status_t;
-using ::keystore::ErrorCode;
+using ::keystore::keymaster::ErrorCode;
 
 ExportResult::ExportResult() : resultCode() {}
 
@@ -219,7 +220,7 @@ status_t ExportResult::readFromParcel(const Parcel* inn) {
 }
 
 status_t ExportResult::writeToParcel(Parcel* out) const {
-    out->writeInt32(resultCode.getErrorCode());
+    out->writeInt32(resultCode);
     return keystore::writeKeymasterBlob(exportData, out);
 }
 
@@ -234,7 +235,7 @@ status_t KeyCharacteristics::writeToParcel(Parcel* out) const {
 }
 
 status_t KeymasterBlob::readFromParcel(const Parcel* in) {
-    data_ = keystore::readKeymasterBlob(*in);
+    data_ = keystore::readKeymasterBlob(*in, true /* in place */);
     return OK;
 }
 

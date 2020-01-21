@@ -16,7 +16,6 @@
 
 #include "grant_store.h"
 
-#include "blob.h"
 #include <algorithm>
 #include <sstream>
 
@@ -26,8 +25,10 @@ static constexpr uint64_t kInvalidGrantNo = std::numeric_limits<uint64_t>::max()
 static const char* kKeystoreGrantInfix = "_KEYSTOREGRANT_";
 static constexpr size_t kKeystoreGrantInfixLength = 15;
 
-Grant::Grant(const KeyBlobEntry& entry, const uint64_t grant_no)
-    : entry_(entry), grant_no_(grant_no) {}
+Grant::Grant(const std::string& alias, const std::string& owner_dir_name, const uid_t owner_uid,
+             const uint64_t grant_no)
+        : alias_(alias), owner_dir_name_(owner_dir_name), owner_uid_(owner_uid),
+          grant_no_(grant_no) {}
 
 static std::pair<uint64_t, std::string> parseGrantAlias(const std::string& grantAlias) {
     auto pos = grantAlias.rfind(kKeystoreGrantInfix);
@@ -40,45 +41,45 @@ static std::pair<uint64_t, std::string> parseGrantAlias(const std::string& grant
     return {grant_no, wrapped_alias};
 }
 
-std::string GrantStore::put(const uid_t uid, const LockedKeyBlobEntry& lockedEntry) {
-    std::unique_lock<std::shared_mutex> lock(mutex_);
+std::string GrantStore::put(const uid_t uid, const std::string& alias,
+                            const std::string& owner_dir_name, const uid_t owner_uid) {
     std::stringstream s;
-    KeyBlobEntry blobEntry = *lockedEntry;
-    s << blobEntry.alias() << kKeystoreGrantInfix;
-
-    std::set<Grant, std::less<>>& uid_grant_list = grants_[uid];
+    s << alias << kKeystoreGrantInfix;
+    auto& uid_grant_list = grants_[uid];
 
     bool success = false;
-    auto iterator =
-        std::find_if(uid_grant_list.begin(), uid_grant_list.end(),
-                     [&](const Grant& entry) { return success = entry.entry_ == blobEntry; });
+    auto iterator = std::find_if(uid_grant_list.begin(), uid_grant_list.end(),
+            [&](auto& entry) {
+                return success = entry.alias_ == alias && entry.owner_dir_name_ == owner_dir_name
+                        && entry.owner_uid_ == owner_uid;
+            });
     while (!success) {
-        std::tie(iterator, success) = uid_grant_list.emplace(blobEntry, std::rand());
+        std::tie(iterator, success) = uid_grant_list.emplace(alias, owner_dir_name, owner_uid,
+                                                             std::rand());
     }
     s << iterator->grant_no_;
     return s.str();
 }
 
-ReadLockedGrant GrantStore::get(const uid_t uid, const std::string& alias) const {
-    std::shared_lock<std::shared_mutex> lock(mutex_);
+const Grant* GrantStore::get(const uid_t uid, const std::string& alias) const {
     uint64_t grant_no;
     std::string wrappedAlias;
     std::tie(grant_no, wrappedAlias) = parseGrantAlias(alias);
-    if (grant_no == kInvalidGrantNo) return {};
+    if (grant_no == kInvalidGrantNo) return nullptr;
     auto uid_set_iter = grants_.find(uid);
-    if (uid_set_iter == grants_.end()) return {};
+    if (uid_set_iter == grants_.end()) return nullptr;
     auto& uid_grant_list = uid_set_iter->second;
     auto grant = uid_grant_list.find(grant_no);
-    if (grant == uid_grant_list.end()) return {};
-    if (grant->entry_.alias() != wrappedAlias) return {};
-    return {&(*grant), std::move(lock)};
+    if (grant == uid_grant_list.end()) return nullptr;
+    if (grant->alias_ != wrappedAlias) return nullptr;
+    return &(*grant);
 }
 
-bool GrantStore::removeByFileAlias(const uid_t granteeUid, const LockedKeyBlobEntry& lockedEntry) {
-    std::unique_lock<std::shared_mutex> lock(mutex_);
+bool GrantStore::removeByFileAlias(const uid_t granteeUid, const uid_t granterUid,
+        const std::string& alias) {
     auto& uid_grant_list = grants_[granteeUid];
     for (auto i = uid_grant_list.begin(); i != uid_grant_list.end(); ++i) {
-        if (i->entry_ == *lockedEntry) {
+        if (i->alias_ == alias && i->owner_uid_ == granterUid) {
             uid_grant_list.erase(i);
             return true;
         }
@@ -87,10 +88,9 @@ bool GrantStore::removeByFileAlias(const uid_t granteeUid, const LockedKeyBlobEn
 }
 
 void GrantStore::removeAllGrantsToKey(const uid_t granterUid, const std::string& alias) {
-    std::unique_lock<std::shared_mutex> lock(mutex_);
     for (auto& uid_grant_list : grants_) {
         for (auto i = uid_grant_list.second.begin(); i != uid_grant_list.second.end(); ++i) {
-            if (i->entry_.alias() == alias && i->entry_.uid() == granterUid) {
+            if (i->alias_ == alias && i->owner_uid_ == granterUid) {
                 uid_grant_list.second.erase(i);
                 break;
             }
@@ -99,7 +99,6 @@ void GrantStore::removeAllGrantsToKey(const uid_t granterUid, const std::string&
 }
 
 void GrantStore::removeAllGrantsToUid(const uid_t granteeUid) {
-    std::unique_lock<std::shared_mutex> lock(mutex_);
     grants_.erase(granteeUid);
 }
 

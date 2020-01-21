@@ -20,7 +20,7 @@
 #include <sys/types.h>
 #include <vector>
 
-#include <android/security/keystore/IKeystoreService.h>
+#include <android/security/IKeystoreService.h>
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
 
@@ -28,10 +28,10 @@
 
 using namespace android;
 using namespace keystore;
-using android::security::keystore::IKeystoreService;
+using android::security::IKeystoreService;
 
 static const char* responses[] = {
-    nullptr,
+    NULL,
     /* [NO_ERROR]           = */ "No error",
     /* [LOCKED]             = */ "Locked",
     /* [UNINITIALIZED]      = */ "Uninitialized",
@@ -46,6 +46,21 @@ static const char* responses[] = {
     /* [WRONG_PASSWORD + 2] = */ "Wrong password (3 tries left)",
     /* [WRONG_PASSWORD + 3] = */ "Wrong password (4 tries left)",
 };
+
+#define NO_ARG_INT_RETURN(cmd) \
+    do { \
+        if (strcmp(argv[1], #cmd) == 0) { \
+            int32_t ret = -1; \
+            service->cmd(&ret); \
+            if (ret < 0) { \
+                fprintf(stderr, "%s: could not connect: %d\n", argv[0], ret); \
+                return 1; \
+            } else { \
+                printf(#cmd ": %s (%d)\n", responses[ret], ret); \
+                return 0; \
+            } \
+        } \
+    } while (0)
 
 #define SINGLE_ARG_INT_RETURN(cmd) \
     do { \
@@ -203,7 +218,7 @@ int main(int argc, char* argv[])
     sp<IBinder> binder = sm->getService(String16("android.security.keystore"));
     sp<IKeystoreService> service = interface_cast<IKeystoreService>(binder);
 
-    if (service == nullptr) {
+    if (service == NULL) {
         fprintf(stderr, "%s: error: could not connect to keystore service\n", argv[0]);
         return 1;
     }
@@ -227,6 +242,8 @@ int main(int argc, char* argv[])
                 argc < 4 ? -1 : atoi(argv[3]));
     }
 
+    NO_ARG_INT_RETURN(reset);
+
     // TODO: notifyUserPasswordChanged
 
     SINGLE_INT_ARG_INT_RETURN(lock);
@@ -236,6 +253,8 @@ int main(int argc, char* argv[])
     SINGLE_INT_ARG_INT_RETURN(isEmpty);
 
     // TODO: generate
+
+    SINGLE_ARG_DATA_RETURN(get_pubkey);
 
     // TODO: grant
 
