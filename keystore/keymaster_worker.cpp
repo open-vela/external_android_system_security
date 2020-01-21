@@ -321,7 +321,6 @@ bool KeymasterWorker::pruneOperation() {
     // We mostly ignore errors from abort() because all we care about is whether at least
     // one operation has been removed.
     auto rc = abort(oldest);
-    keyStore_->removeOperationDevice(oldest);
     if (operationMap_.getOperationCount() >= op_count_before_abort) {
         ALOGE("Failed to abort pruneable operation %p, error: %d", oldest.get(), rc.getErrorCode());
         return false;
@@ -1092,7 +1091,6 @@ void KeymasterWorker::binderDied(android::wp<IBinder> who) {
         auto operations = operationMap_.getOperationsForToken(who.unsafe_get());
         for (const auto& token : operations) {
             abort(token);
-            keyStore_->removeOperationDevice(token);
         }
     });
 }
