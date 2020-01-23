@@ -116,28 +116,10 @@ Status ConfirmationManager::cancelConfirmationPrompt(const sp<IBinder>& listener
     }
     mMutex.unlock();
 
-    cancelPrompt();
+    finalizeTransaction(ConfirmationResponseCode::Aborted, {}, true);
 
     *aidl_return = static_cast<int32_t>(ConfirmationResponseCode::OK);
     return Status::ok();
-}
-
-void ConfirmationManager::cancelPrompt() {
-    mMutex.lock();
-    mRateLimiting.cancelPrompt();
-    if (mCurrentListener != nullptr) {
-        mCurrentListener->unlinkToDeath(mDeathRecipient);
-        mCurrentListener = nullptr;
-    }
-    sp<IConfirmationUI> confirmationUI = mCurrentConfirmationUI;
-    if (mCurrentConfirmationUI != nullptr) {
-        mCurrentConfirmationUI->unlinkToDeath(this);
-        mCurrentConfirmationUI = nullptr;
-    }
-    mMutex.unlock();
-    if (confirmationUI != nullptr) {
-        confirmationUI->abort();
-    }
 }
 
 // Called by keystore main thread.
@@ -154,7 +136,13 @@ Status ConfirmationManager::isConfirmationPromptSupported(bool* aidl_return) {
 }
 
 void ConfirmationManager::finalizeTransaction(ConfirmationResponseCode responseCode,
-                                              hidl_vec<uint8_t> dataThatWasConfirmed) {
+                                              hidl_vec<uint8_t> dataThatWasConfirmed,
+                                              bool callAbortOnHal) {
+    // Note that confirmationUI->abort() may make the remote HAL process do an IPC call back
+    // into our process resulting in confirmationResultCallback() to be called... this in turn
+    // calls finalizeTransaction(). So we have to be careful a) not holding any locks;
+    // and b) ensure state has been cleared; before doing this...
+
     mMutex.lock();
     mRateLimiting.processResult(responseCode);
     sp<IBinder> listener = mCurrentListener;
@@ -162,11 +150,17 @@ void ConfirmationManager::finalizeTransaction(ConfirmationResponseCode responseC
         mCurrentListener->unlinkToDeath(mDeathRecipient);
         mCurrentListener = nullptr;
     }
+    sp<IConfirmationUI> confirmationUI = mCurrentConfirmationUI;
     if (mCurrentConfirmationUI != nullptr) {
         mCurrentConfirmationUI->unlinkToDeath(this);
         mCurrentConfirmationUI = nullptr;
     }
     mMutex.unlock();
+
+    // Tell the HAL to shut down the confirmation dialog, if requested.
+    if (confirmationUI != nullptr && callAbortOnHal) {
+        confirmationUI->abort();
+    }
 
     // Deliver result to the application that started the operation.
     if (listener != nullptr) {
@@ -184,7 +178,7 @@ void ConfirmationManager::finalizeTransaction(ConfirmationResponseCode responseC
 Return<void> ConfirmationManager::result(ConfirmationResponseCode responseCode,
                                          const hidl_vec<uint8_t>& dataThatWasConfirmed,
                                          const hidl_vec<uint8_t>& confirmationToken) {
-    finalizeTransaction(responseCode, dataThatWasConfirmed);
+    finalizeTransaction(responseCode, dataThatWasConfirmed, false);
     lock_guard<mutex> lock(mMutex);
     mLatestConfirmationToken = confirmationToken;
     return Return<void>();
@@ -207,7 +201,7 @@ void ConfirmationManager::binderDied(const wp<IBinder>& who) {
         mCurrentListener = nullptr;
         mMutex.unlock();
         ALOGW("The process which requested the confirmation dialog died.\n");
-        cancelPrompt();
+        finalizeTransaction(ConfirmationResponseCode::SystemError, {}, true);
     } else {
         mMutex.unlock();
     }
@@ -216,7 +210,7 @@ void ConfirmationManager::binderDied(const wp<IBinder>& who) {
 void ConfirmationManager::serviceDied(uint64_t /* cookie */,
                                       const wp<android::hidl::base::V1_0::IBase>& /* who */) {
     ALOGW("The ConfirmationUI HAL died.\n");
-    finalizeTransaction(ConfirmationResponseCode::SystemError, {});
+    finalizeTransaction(ConfirmationResponseCode::SystemError, {}, false);
 }
 
 }  // namespace keystore
