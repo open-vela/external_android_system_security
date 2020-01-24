@@ -38,6 +38,7 @@
 
 #include <android/hardware/confirmationui/1.0/IConfirmationUI.h>
 #include <android/hardware/keymaster/3.0/IHwKeymasterDevice.h>
+#include <keymasterV4_0/keymaster_utils.h>
 
 #include "defaults.h"
 #include "key_proto_handler.h"
@@ -612,8 +613,6 @@ Status KeyStoreService::generateKey(
     const ::android::sp<::android::security::keystore::IKeystoreKeyCharacteristicsCallback>& cb,
     const String16& name, const KeymasterArguments& params, const ::std::vector<uint8_t>& entropy,
     int uid, int flags, int32_t* _aidl_return) {
-    // TODO(jbires): remove this getCallingUid call upon implementation of b/25646100
-    uid_t originalUid = IPCThreadState::self()->getCallingUid();
     uid = getEffectiveUid(uid);
     auto logOnScopeExit = android::base::make_scope_guard([&] {
         if (__android_log_security()) {
@@ -633,9 +632,7 @@ Status KeyStoreService::generateKey(
     }
 
     if (containsTag(params.getParameters(), Tag::INCLUDE_UNIQUE_ID)) {
-        // TODO(jbires): remove uid checking upon implementation of b/25646100
-        if (!checkBinderPermission(P_GEN_UNIQUE_ID) ||
-            originalUid != IPCThreadState::self()->getCallingUid()) {
+        if (!checkBinderPermission(P_GEN_UNIQUE_ID)) {
             return AIDL_RETURN(ResponseCode::PERMISSION_DENIED);
         }
     }
@@ -943,6 +940,24 @@ Status KeyStoreService::addAuthToken(const ::std::vector<uint8_t>& authTokenAsVe
     mKeyStore->getAuthTokenTable().AddAuthenticationToken(
         hidlVec2AuthToken(hidl_vec<uint8_t>(authTokenAsVector)));
     *aidl_return = static_cast<int32_t>(ResponseCode::NO_ERROR);
+    return Status::ok();
+}
+
+Status KeyStoreService::getAuthTokenForCredstore(int64_t challenge, int64_t secureUserId,
+                                                 int32_t authTokenMaxAgeMillis,
+                                                 std::vector<uint8_t>* _aidl_return) {
+    uid_t callingUid = IPCThreadState::self()->getCallingUid();
+    if (callingUid != AID_CREDSTORE) {
+        return Status::fromServiceSpecificError(static_cast<int32_t>(0));
+    }
+
+    auto [err, authToken] = mKeyStore->getAuthTokenTable().FindAuthorizationForCredstore(
+        challenge, secureUserId, authTokenMaxAgeMillis);
+    std::vector<uint8_t> ret;
+    if (err == AuthTokenTable::OK) {
+        ret = android::hardware::keymaster::V4_0::support::authToken2HidlVec(authToken);
+    }
+    *_aidl_return = ret;
     return Status::ok();
 }
 
