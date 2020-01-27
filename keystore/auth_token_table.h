@@ -25,6 +25,8 @@
 
 namespace keystore {
 
+using keymaster::HardwareAuthToken;
+
 namespace test {
 class AuthTokenTableTest;
 }  // namespace test
