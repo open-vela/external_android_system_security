@@ -19,7 +19,7 @@ cc_test {
     static_libs: [
         "android.hardware.confirmationui@1.0",
         "libbase",
-        "libcrypto",
+        "libcrypto_static",
         "libcutils",
         "libgtest_main",
         "libhidlbase",
@@ -27,11 +27,11 @@ cc_test {
         "libkeystore_test",
         "liblog",
         "libutils",
-        "libvndksupport",
     ],
     shared_libs: [
         "libbinder",
         "libkeymaster_messages",
+        "libvndksupport",
     ],
    sanitize: {
      cfi: false,
