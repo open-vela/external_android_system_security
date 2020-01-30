@@ -115,6 +115,7 @@ class Worker {
     std::mutex pending_requests_mutex_;
     std::condition_variable pending_requests_cond_var_;
     bool running_ = false;
+    bool terminate_ = false;
 
   public:
     Worker();
@@ -175,6 +176,8 @@ class KeymasterWorker : protected Worker {
             unwrap_tuple(kmfn, std::move(cb), tuple, std::index_sequence_for<Args...>{});
         });
     }
+
+    void deleteOldKeyOnUpgrade(const LockedKeyBlobEntry& blobfile, Blob keyBlob);
     std::tuple<KeyStoreServiceReturnCode, Blob>
     upgradeKeyBlob(const LockedKeyBlobEntry& lockedEntry, const AuthorizationSet& params);
     std::tuple<KeyStoreServiceReturnCode, KeyCharacteristics, Blob, Blob>
