@@ -24,7 +24,6 @@ cc_test {
         "libgtest_main",
         "libhidlbase",
         "libkeymaster4support",
-        "libkeymaster4_1support",
         "libkeystore_test",
         "liblog",
         "libutils",
@@ -32,6 +31,7 @@ cc_test {
     shared_libs: [
         "libbinder",
         "libkeymaster_messages",
+        "libkeystore-attestation-application-id",
         "libvndksupport",
     ],
    sanitize: {
