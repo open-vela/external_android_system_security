@@ -22,21 +22,13 @@
 
 #include <android-base/logging.h>
 
-#include <log/log_event_list.h>
-
-#include <private/android_logger.h>
-
 #include "KeyStore.h"
 #include "keymaster_enforcement.h"
 
 #include "key_proto_handler.h"
 #include "keystore_utils.h"
 
-#include <chrono>
-
 namespace keystore {
-
-using namespace std::chrono;
 
 constexpr size_t kMaxOperations = 15;
 
@@ -48,34 +40,23 @@ using android::security::keymaster::OperationResult;
 Worker::Worker() {}
 Worker::~Worker() {
     std::unique_lock<std::mutex> lock(pending_requests_mutex_);
-    terminate_ = true;
-    pending_requests_cond_var_.notify_all();
-    pending_requests_cond_var_.wait(lock, [this] { return !running_; });
+    pending_requests_cond_var_.wait(lock, [this] { return pending_requests_.empty(); });
 }
 void Worker::addRequest(WorkerTask request) {
     std::unique_lock<std::mutex> lock(pending_requests_mutex_);
-    bool start_thread = !running_;
-    running_ = true;
+    bool start_thread = pending_requests_.empty();
     pending_requests_.push(std::move(request));
     lock.unlock();
-    pending_requests_cond_var_.notify_all();
     if (start_thread) {
         auto worker = std::thread([this] {
             std::unique_lock<std::mutex> lock(pending_requests_mutex_);
-            while (running_) {
-                // Wait for 30s if the request queue is empty, then kill die.
-                // Die immediately if termiate_ was set which happens in the destructor.
-                auto status = pending_requests_cond_var_.wait_for(
-                    lock, 30s, [this]() { return !pending_requests_.empty() || terminate_; });
-                if (status && !terminate_) {
-                    auto request = std::move(pending_requests_.front());
-                    lock.unlock();
-                    request();
-                    lock.lock();
-                    pending_requests_.pop();
-                } else {
-                    running_ = false;
-                }
+            running_ = true;
+            while (!pending_requests_.empty()) {
+                auto request = std::move(pending_requests_.front());
+                lock.unlock();
+                request();
+                lock.lock();
+                pending_requests_.pop();
                 pending_requests_cond_var_.notify_all();
             }
         });
@@ -91,26 +72,6 @@ KeymasterWorker::KeymasterWorker(sp<Keymaster> keymasterDevice, KeyStore* keySto
 
 void KeymasterWorker::logIfKeymasterVendorError(ErrorCode ec) const {
     keymasterDevice_->logIfKeymasterVendorError(ec);
-}
-
-void KeymasterWorker::deleteOldKeyOnUpgrade(const LockedKeyBlobEntry& blobfile, Blob keyBlob) {
-    // if we got the blob successfully, we try and delete it from the keymaster device
-    auto& dev = keymasterDevice_;
-    uid_t uid = blobfile->uid();
-    const auto& alias = blobfile->alias();
-
-    if (keyBlob.getType() == ::TYPE_KEYMASTER_10) {
-        auto ret = KS_HANDLE_HIDL_ERROR(dev, dev->deleteKey(blob2hidlVec(keyBlob)));
-        // A device doesn't have to implement delete_key.
-        bool success = ret == ErrorCode::OK || ret == ErrorCode::UNIMPLEMENTED;
-        if (__android_log_security()) {
-            android_log_event_list(SEC_TAG_KEY_DESTROYED)
-                << int32_t(success) << alias << int32_t(uid) << LOG_ID_SECURITY;
-        }
-        if (!success) {
-            LOG(ERROR) << "Keymaster delete for key " << alias << " of uid " << uid << " failed";
-        }
-    }
 }
 
 std::tuple<KeyStoreServiceReturnCode, Blob>
@@ -150,6 +111,12 @@ KeymasterWorker::upgradeKeyBlob(const LockedKeyBlobEntry& lockedEntry,
             return;
         }
 
+        error = keyStore_->del(lockedEntry);
+        if (!error.isOk()) {
+            ALOGI("upgradeKeyBlob keystore->del failed %d", error.getErrorCode());
+            return;
+        }
+
         Blob newBlob(&upgradedKeyBlob[0], upgradedKeyBlob.size(), nullptr /* info */,
                      0 /* infoLength */, ::TYPE_KEYMASTER_10);
         newBlob.setSecurityLevel(blob.getSecurityLevel());
@@ -162,8 +129,6 @@ KeymasterWorker::upgradeKeyBlob(const LockedKeyBlobEntry& lockedEntry,
             ALOGI("upgradeKeyBlob keystore->put failed %d", error.getErrorCode());
             return;
         }
-
-        deleteOldKeyOnUpgrade(lockedEntry, std::move(blob));
         blob = std::move(newBlob);
     };
 
@@ -356,7 +321,6 @@ bool KeymasterWorker::pruneOperation() {
     // We mostly ignore errors from abort() because all we care about is whether at least
     // one operation has been removed.
     auto rc = abort(oldest);
-    keyStore_->removeOperationDevice(oldest);
     if (operationMap_.getOperationCount() >= op_count_before_abort) {
         ALOGE("Failed to abort pruneable operation %p, error: %d", oldest.get(), rc.getErrorCode());
         return false;
@@ -1127,7 +1091,6 @@ void KeymasterWorker::binderDied(android::wp<IBinder> who) {
         auto operations = operationMap_.getOperationsForToken(who.unsafe_get());
         for (const auto& token : operations) {
             abort(token);
-            keyStore_->removeOperationDevice(token);
         }
     });
 }
