@@ -15,8 +15,6 @@
 #ifndef KEYSTORE_KEYSTORE_CLIENT_H_
 #define KEYSTORE_KEYSTORE_CLIENT_H_
 
-#include <memory>
-#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -160,7 +158,7 @@ class KeystoreClient {
     // keymaster_error_t on failure.
     virtual KeyStoreNativeReturnCode
     finishOperation(uint64_t handle, const keystore::AuthorizationSet& input_parameters,
-                    const std::string& input_data, const std::string& signature_to_verify,
+                    const std::string& signature_to_verify,
                     keystore::AuthorizationSet* output_parameters, std::string* output_data) = 0;
 
     // Aborts the operation associated with |handle|. Returns KM_ERROR_OK on
@@ -174,13 +172,6 @@ class KeystoreClient {
     // Provides a |key_name_list| containing all existing key names in the
     // caller's key store starting with |prefix|. Returns true on success.
     virtual bool listKeys(const std::string& prefix, std::vector<std::string>* key_name_list) = 0;
-
-    // Provides a |key_name_list| containing all existing key names in the
-    // caller's key store starting with |prefix|. Returns true on success.
-    virtual bool listKeysOfUid(const std::string& prefix, int uid,
-                               std::vector<std::string>* key_name_list) = 0;
-
-    virtual std::optional<std::vector<uint8_t>> getKey(const std::string& alias, int uid) = 0;
 
   private:
     DISALLOW_COPY_AND_ASSIGN(KeystoreClient);
