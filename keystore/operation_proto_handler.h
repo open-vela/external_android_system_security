@@ -14,15 +14,31 @@
  * limitations under the License.
  */
 
-#ifndef KEY_OPERATION_LOG_HANDLER_H_
-#define KEY_OPERATION_LOG_HANDLER_H_
+#ifndef KEYSTORE_OPERATION_PROTO_HANDLER_H_
+#define KEYSTORE_OPERATION_PROTO_HANDLER_H_
 
+#include "operation_config.pb.h"
 #include "operation_struct.h"
+#include <chrono>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
 
 namespace keystore {
 
-void logKeystoreKeyOperationEvent(const Operation& op, bool wasSuccessful, int32_t errorCode);
+using ::android::IBinder;
+using keymaster::support::Keymaster;
+
+class OperationProtoHandler {
+  public:
+    void uploadOpAsProto(Operation& op, bool wasOpSuccessful);
+
+  private:
+    std::unordered_map<std::string, int> protoMap;
+    std::chrono::steady_clock::time_point start_time = std::chrono::steady_clock::now();
+    std::mutex op_upload_mutex;
+};
 
 }  // namespace keystore
 
-#endif  // KEY_OPERATION_LOG_HANDLER_H_
+#endif  // KEYSTORE_OPERATION_PROTO_HANDLER_H_

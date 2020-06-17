@@ -16,7 +16,6 @@
 #define LOG_TAG "KeystoreOperation"
 
 #include "operation.h"
-#include "key_operation_log_handler.h"
 
 #include <algorithm>
 #include <android-base/logging.h>
@@ -59,12 +58,12 @@ void OperationMap::updateLru(const sp<IBinder>& token) {
 }
 
 std::shared_ptr<Operation> OperationMap::removeOperation(const sp<IBinder>& token,
-                                                         bool wasSuccessful, int32_t responseCode) {
+                                                         bool wasSuccessful) {
     auto entry = mMap.find(token);
     if (entry == mMap.end()) return {};
 
     auto op = entry->second;
-    logKeystoreKeyOperationEvent(*op, wasSuccessful, responseCode);
+    operationUploader.uploadOpAsProto(*op, wasSuccessful);
     mMap.erase(entry);
 
     auto lruEntry = std::find(mLru.begin(), mLru.end(), token);

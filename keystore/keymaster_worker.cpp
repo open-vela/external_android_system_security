@@ -336,10 +336,8 @@ KeymasterWorker::getAuthToken(const KeyCharacteristics& characteristics, uint64_
     return {rc, std::move(authToken)};
 }
 
-KeyStoreServiceReturnCode KeymasterWorker::abort(const sp<IBinder>& token,
-                                                 ResponseCode reason_for_abort) {
-    auto op = operationMap_.removeOperation(token, false /* wasOpSuccessful */,
-                                            static_cast<int32_t>(reason_for_abort));
+KeyStoreServiceReturnCode KeymasterWorker::abort(const sp<IBinder>& token) {
+    auto op = operationMap_.removeOperation(token, false /* wasOpSuccessful */);
     if (op) {
         keyStore_->getAuthTokenTable().MarkCompleted(op->handle);
         return KS_HANDLE_HIDL_ERROR(keymasterDevice_, keymasterDevice_->abort(op->handle));
@@ -357,7 +355,7 @@ bool KeymasterWorker::pruneOperation() {
     size_t op_count_before_abort = operationMap_.getOperationCount();
     // We mostly ignore errors from abort() because all we care about is whether at least
     // one operation has been removed.
-    auto rc = abort(oldest, ResponseCode::PRUNED);
+    auto rc = abort(oldest);
     keyStore_->removeOperationDevice(oldest);
     if (operationMap_.getOperationCount() >= op_count_before_abort) {
         ALOGE("Failed to abort pruneable operation %p, error: %d", oldest.get(), rc.getErrorCode());
@@ -600,7 +598,7 @@ void KeymasterWorker::update(sp<IBinder> token, AuthorizationSet params, hidl_ve
         }
 
         Finalize abort_operation_in_case_of_error([&] {
-            operationMap_.removeOperation(token, false, rc.getErrorCode());
+            operationMap_.removeOperation(token, false);
             keyStore_->getAuthTokenTable().MarkCompleted(op->handle);
             KS_HANDLE_HIDL_ERROR(keymasterDevice_, keymasterDevice_->abort(op->handle));
         });
@@ -679,7 +677,7 @@ void KeymasterWorker::finish(sp<IBinder> token, AuthorizationSet params, hidl_ve
 
         bool finished = false;
         Finalize abort_operation_in_case_of_error([&] {
-            operationMap_.removeOperation(token, finished && rc.isOk(), rc.getErrorCode());
+            operationMap_.removeOperation(token, finished && rc.isOk());
             keyStore_->getAuthTokenTable().MarkCompleted(op->handle);
             if (!finished)
                 KS_HANDLE_HIDL_ERROR(keymasterDevice_, keymasterDevice_->abort(op->handle));
@@ -747,9 +745,8 @@ void KeymasterWorker::finish(sp<IBinder> token, AuthorizationSet params, hidl_ve
 }
 
 void KeymasterWorker::abort(sp<IBinder> token, abort_cb worker_cb) {
-    Worker::addRequest([this, CAPTURE_MOVE(token), CAPTURE_MOVE(worker_cb)]() {
-        return worker_cb(abort(token, ResponseCode::ABORT_CALLED));
-    });
+    Worker::addRequest(
+        [this, CAPTURE_MOVE(token), CAPTURE_MOVE(worker_cb)]() { return worker_cb(abort(token)); });
 }
 
 void KeymasterWorker::verifyAuthorization(uint64_t challenge, hidl_vec<KeyParameter> params,
@@ -1135,7 +1132,7 @@ void KeymasterWorker::binderDied(android::wp<IBinder> who) {
     Worker::addRequest([this, who]() {
         auto operations = operationMap_.getOperationsForToken(who.unsafe_get());
         for (const auto& token : operations) {
-            abort(token, ResponseCode::BINDER_DIED);
+            abort(token);
             keyStore_->removeOperationDevice(token);
         }
     });
