@@ -22,7 +22,9 @@
 #include <log/log.h>
 #include <private/android_filesystem_config.h>
 
+#ifdef __ANDROID__
 #include <selinux/android.h>
+#endif
 
 #include "keystore_utils.h"
 
@@ -103,6 +105,7 @@ const char* get_perm_label(perm_t perm) {
     }
 }
 
+#ifdef __ANDROID__
 static int audit_callback(void* data, security_class_t /* cls */, char* buf, size_t len) {
     struct audit_data* ad = reinterpret_cast<struct audit_data*>(data);
     if (!ad) {
@@ -114,10 +117,12 @@ static int audit_callback(void* data, security_class_t /* cls */, char* buf, siz
     snprintf(buf, len, "pid=%d uid=%d sid=%s", ad->pid, ad->uid, sid);
     return 0;
 }
+#endif
 
 static char* tctx;
 
 int configure_selinux() {
+#ifdef __ANDROID__
     union selinux_callback cb;
     cb.func_audit = audit_callback;
     selinux_set_callback(SELINUX_CB_AUDIT, cb);
@@ -127,11 +132,13 @@ int configure_selinux() {
         ALOGE("SELinux: Could not acquire target context. Aborting keystore.\n");
         return -1;
     }
+#endif
 
     return 0;
 }
 
 static bool keystore_selinux_check_access(uid_t uid, perm_t perm, pid_t spid, const char* ssid) {
+#ifdef __ANDROID__
     audit_data ad;
     char* sctx = nullptr;
     const char* selinux_class = "keystore_key";
@@ -156,6 +163,9 @@ static bool keystore_selinux_check_access(uid_t uid, perm_t perm, pid_t spid, co
                                         reinterpret_cast<void*>(&ad)) == 0;
     freecon(sctx);
     return allowed;
+#else
+    return true;
+#endif
 }
 
 /**
