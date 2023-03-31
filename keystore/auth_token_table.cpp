@@ -73,7 +73,11 @@ template <typename Container> typename Container::iterator min_element(Container
 
 time_t clock_gettime_raw() {
     struct timespec time;
+#ifdef CLOCK_MONOTONIC_RAW
     clock_gettime(CLOCK_MONOTONIC_RAW, &time);
+#else
+    clock_gettime(CLOCK_MONOTONIC, &time);
+#endif
     return time.tv_sec;
 }
 
