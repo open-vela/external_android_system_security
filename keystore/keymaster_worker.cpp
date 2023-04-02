@@ -18,8 +18,6 @@
 
 #include "keymaster_worker.h"
 
-#include "keystore_utils.h"
-
 #include <android-base/logging.h>
 
 #include <log/log_event_list.h>
