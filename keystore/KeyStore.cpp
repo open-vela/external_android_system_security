@@ -20,6 +20,7 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 
 #include <openssl/bio.h>
 
