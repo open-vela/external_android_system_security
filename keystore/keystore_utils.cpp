@@ -16,8 +16,6 @@
 
 #define LOG_TAG "keystore"
 
-#include "keystore_utils.h"
-
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -34,6 +32,7 @@
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
 
+#include "keystore_utils.h"
 #include "blob.h"
 
 size_t readFully(int fd, uint8_t* data, size_t size) {

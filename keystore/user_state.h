@@ -26,8 +26,6 @@
 #include <keystore/keystore.h>
 
 #include "blob.h"
-#include "keystore_utils.h"
-
 #include <android-base/logging.h>
 #include <condition_variable>
 #include <keystore/keystore_concurrency.h>
