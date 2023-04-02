@@ -16,7 +16,9 @@
 #define LOG_TAG "KeystoreOperation"
 
 #include "key_creation_log_handler.h"
+#ifndef __NuttX__
 #include <statslog.h>
+#endif
 
 namespace keystore {
 
@@ -192,6 +194,7 @@ void logKeystoreKeyCreationEvent(const hidl_vec<KeyParameter>& keyParams,
     AuthorizationSet authorization_set(keyParams);
     authorization_set.Deduplicate();
 
+#ifndef __NuttX__
     android::util::stats_write(android::util::KEYSTORE_KEY_EVENT_REPORTED,
                                getEnumTagValue(authorization_set, TAG_ALGORITHM),
                                getEnumTagValue(authorization_set, TAG_KEY_SIZE),
@@ -206,6 +209,7 @@ void logKeystoreKeyCreationEvent(const hidl_vec<KeyParameter>& keyParams,
                                getEnumTagValue(authorization_set, TAG_BLOB_USAGE_REQUIREMENTS),
                                android::util::KEYSTORE_KEY_EVENT_REPORTED__TYPE__KEY_CREATION,
                                wasCreationSuccessful, errorCode);
+#endif
 }
 
 }  // namespace keystore

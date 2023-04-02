@@ -13,13 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include "key_attestation_log_handler.h"
+#ifndef __NuttX__
 #include <statslog.h>
+#endif
+
 namespace keystore {
 
 void logKeystoreKeyAttestationEvent(bool wasSuccessful, int32_t errorCode) {
+#ifndef __NuttX__
     android::util::stats_write(android::util::KEYSTORE_KEY_EVENT_REPORTED,
                                android::util::KEYSTORE_KEY_EVENT_REPORTED__TYPE__KEY_ATTESTATION,
                                wasSuccessful, errorCode);
+#endif
 }
 
 }  // namespace keystore
