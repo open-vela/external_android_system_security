@@ -19,7 +19,9 @@
 #include "key_creation_log_handler.h"
 
 #include <keystore/keystore_hidl_support.h>
+#ifndef __NuttX__
 #include <statslog.h>
+#endif
 
 namespace keystore {
 
@@ -117,6 +119,7 @@ void logKeystoreKeyOperationEvent(const Operation& op, bool wasOperationSuccessf
     authorization_set.Union(op.characteristics.hardwareEnforced);
     AuthorizationSet operation_params(op.params);
 
+#ifndef __NuttX__
     android::util::stats_write(
         android::util::KEYSTORE_KEY_EVENT_REPORTED,
         getOptionalEnumTagValue(authorization_set, TAG_ALGORITHM),
@@ -131,6 +134,7 @@ void logKeystoreKeyOperationEvent(const Operation& op, bool wasOperationSuccessf
         getOptionalEnumTagValue(authorization_set, TAG_BLOB_USAGE_REQUIREMENTS),
         android::util::KEYSTORE_KEY_EVENT_REPORTED__TYPE__KEY_OPERATION, wasOperationSuccessful,
         responseCode);
+#endif
 }
 
 }  // namespace keystore
