@@ -17,6 +17,8 @@
 #ifndef _KEY_ATTESTATION_LOG_HANDLER_H_
 #define _KEY_ATTESTATION_LOG_HANDLER_H_
 
+#include <stdint.h>
+
 namespace keystore {
 
 void logKeystoreKeyAttestationEvent(bool wasSuccessful, int32_t errorCode);
