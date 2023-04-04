@@ -43,7 +43,7 @@ template <typename Clock = std::chrono::steady_clock> class RateLimiting {
 
     std::unordered_map<uid_t, Slot> slots_;
 
-    uint_t latest_requester_;
+    unsigned int latest_requester_;
 
     static std::chrono::seconds getBackoff(uint32_t counter) {
         using namespace std::chrono_literals;
@@ -99,7 +99,7 @@ template <typename Clock = std::chrono::steady_clock> class RateLimiting {
     // The app is penalized for cancelling a request. Request are rolled back only if
     // the prompt was cancelled by the system: e.g. a system error or asynchronous event.
     // When the user cancels the prompt, it is subject to rate limiting.
-    static constexpr const uint_t kInvalidRequester = -1;
+    static constexpr const unsigned int kInvalidRequester = -1;
 
     void cancelPrompt() { latest_requester_ = kInvalidRequester; }
 
