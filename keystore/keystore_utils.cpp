@@ -152,6 +152,11 @@ hidl_vec<uint8_t> blob2hidlVec(const Blob& blob) {
 }
 
 SecurityLevel flagsToSecurityLevel(int32_t flags) {
+#if defined(CONFIG_KEYMASTER_SOFTWARE)
+    return SecurityLevel::SOFTWARE;
+#elif defined(CONFIG_KEYMASTER_TEE)
+    return SecurityLevel::TRUSTED_ENVIRONMENT;
+#else
     switch (flags & (KEYSTORE_FLAG_FALLBACK | KEYSTORE_FLAG_STRONGBOX)) {
     case KEYSTORE_FLAG_FALLBACK:
     // treating Strongbox flag as "don't care" if Fallback is set
@@ -162,6 +167,7 @@ SecurityLevel flagsToSecurityLevel(int32_t flags) {
     default:
         return SecurityLevel::TRUSTED_ENVIRONMENT;
     }
+#endif
 }
 
 uint32_t securityLevelToFlags(SecurityLevel secLevel) {

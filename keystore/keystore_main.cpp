@@ -102,6 +102,14 @@ KeymasterDevices enumerateKeymasterDevices(IServiceManager* serviceManager) {
 }
 
 KeymasterDevices initializeKeymasters() {
+#if defined(CONFIG_KEYMASTER_SOFTWARE)
+    KeymasterDevices result;
+    auto softdev = android::keystore::makeSoftwareKeymasterDevice();
+    CHECK(softdev.get()) << "Unable to create software Keymaster Device";
+    result[SecurityLevel::SOFTWARE] = new Keymaster3(softdev, "Software");
+#elif defined(CONFIG_KEYMASTER_TEE)
+    // init the tee device
+#else
     auto serviceManager = IServiceManager::getService();
     CHECK(serviceManager.get()) << "Failed to get ServiceManager";
     auto result = enumerateKeymasterDevices<Keymaster4>(serviceManager.get());
@@ -121,23 +129,25 @@ KeymasterDevices initializeKeymasters() {
         CHECK(fbdev.get()) << "Unable to create Software Keymaster Device";
         result[SecurityLevel::SOFTWARE] = new Keymaster3(fbdev, "Software");
     }
+#endif
     return result;
 }
 
-int main(int argc, char* argv[]) {
+extern "C" int main(int argc, char* argv[]) {
     using android::hardware::hidl_string;
     CHECK(argc >= 2) << "A directory must be specified!";
     CHECK(chdir(argv[1]) != -1) << "chdir: " << argv[1] << ": " << strerror(errno);
 
     auto kmDevices = initializeKeymasters();
 
-    CHECK(kmDevices[SecurityLevel::SOFTWARE]) << "Missing software Keymaster device";
-    CHECK(kmDevices[SecurityLevel::TRUSTED_ENVIRONMENT])
+    CHECK(kmDevices[SecurityLevel::SOFTWARE] || kmDevices[SecurityLevel::TRUSTED_ENVIRONMENT])
         << "Error no viable keymaster device found";
 
     CHECK(configure_selinux() != -1) << "Failed to configure SELinux.";
 
-    auto halVersion = kmDevices[SecurityLevel::TRUSTED_ENVIRONMENT]->halVersion();
+    auto halVersion = kmDevices[SecurityLevel::TRUSTED_ENVIRONMENT]
+                          ? kmDevices[SecurityLevel::TRUSTED_ENVIRONMENT]->halVersion()
+                          : kmDevices[SecurityLevel::SOFTWARE]->halVersion();
 
     // If the hardware is keymaster 2.0 or higher we will not allow the fallback device for import
     // or generation of keys. The fallback device is only used for legacy keys present on the
