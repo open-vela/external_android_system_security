@@ -37,6 +37,7 @@
 
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
+#include <keymaster/km_openssl/openssl_utils.h>
 
 namespace {
 
@@ -82,7 +83,8 @@ ResponseCode AES_gcm_encrypt(const uint8_t* in, uint8_t* out, size_t len,
     // There can be 128-bit and 256-bit keys
     const EVP_CIPHER* cipher = getAesCipherForKey(key);
 
-    bssl::UniquePtr<EVP_CIPHER_CTX> ctx(EVP_CIPHER_CTX_new());
+    keymaster::UniquePtr<EVP_CIPHER_CTX, keymaster::EVP_CIPHER_CTX_Delete> ctx(
+        EVP_CIPHER_CTX_new());
 
     EVP_EncryptInit_ex(ctx.get(), cipher, nullptr /* engine */, key.data(), iv);
     EVP_CIPHER_CTX_set_padding(ctx.get(), 0 /* no padding needed with GCM */);
@@ -119,7 +121,8 @@ ResponseCode AES_gcm_decrypt(const uint8_t* in, uint8_t* out, size_t len,
     // There can be 128-bit and 256-bit keys
     const EVP_CIPHER* cipher = getAesCipherForKey(key);
 
-    bssl::UniquePtr<EVP_CIPHER_CTX> ctx(EVP_CIPHER_CTX_new());
+    keymaster::UniquePtr<EVP_CIPHER_CTX, keymaster::EVP_CIPHER_CTX_Delete> ctx(
+        EVP_CIPHER_CTX_new());
 
     EVP_DecryptInit_ex(ctx.get(), cipher, nullptr /* engine */, key.data(), iv);
     EVP_CIPHER_CTX_set_padding(ctx.get(), 0 /* no padding needed with GCM */);

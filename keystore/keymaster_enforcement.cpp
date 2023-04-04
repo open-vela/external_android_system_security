@@ -362,13 +362,13 @@ ErrorCode KeymasterEnforcement::AuthorizeBegin(const KeyPurpose purpose, const k
 
 class EvpMdCtx {
   public:
-    EvpMdCtx() { EVP_MD_CTX_init(&ctx_); }
-    ~EvpMdCtx() { EVP_MD_CTX_cleanup(&ctx_); }
+    EvpMdCtx() : ctx_(EVP_MD_CTX_new()) { }
+    ~EvpMdCtx() { EVP_MD_CTX_free(ctx_); }
 
-    EVP_MD_CTX* get() { return &ctx_; }
+    EVP_MD_CTX* get() { return ctx_; }
 
   private:
-    EVP_MD_CTX ctx_;
+    EVP_MD_CTX* ctx_;
 };
 
 /* static */
