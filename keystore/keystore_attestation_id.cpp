@@ -29,6 +29,25 @@
 #include <binder/Parcelable.h>
 #include <binder/PersistableBundle.h>
 
+#ifdef __NuttX__
+using ::android::security::keymaster::KeyAttestationApplicationId;
+using ::android::security::StatusOr;
+
+namespace android {
+namespace security {
+
+StatusOr<std::vector<uint8_t>>
+build_attestation_application_id(const KeyAttestationApplicationId& key_attestation_id) {
+    return android::NO_ERROR;
+}
+
+StatusOr<std::vector<uint8_t>> gather_attestation_application_id(uid_t uid) {
+    return android::NO_ERROR;
+}
+
+}  // namespace security
+}  // namespace android
+#else
 #include <android/security/keymaster/BpKeyAttestationApplicationIdProvider.h>
 #include <android/security/keymaster/IKeyAttestationApplicationIdProvider.h>
 #include <keystore/KeyAttestationApplicationId.h>
@@ -297,3 +316,4 @@ StatusOr<std::vector<uint8_t>> gather_attestation_application_id(uid_t uid) {
 
 }  // namespace security
 }  // namespace android
+#endif
