@@ -37,7 +37,6 @@
 #include <private/android_logger.h>
 
 #include <android/hardware/confirmationui/1.0/IConfirmationUI.h>
-#include <android/hardware/keymaster/3.0/IHwKeymasterDevice.h>
 #include <keymasterV4_0/keymaster_utils.h>
 
 #include "defaults.h"
