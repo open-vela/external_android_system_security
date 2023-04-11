@@ -19,8 +19,10 @@ include $(APPDIR)/Make.defs
 CXXEXT = .cpp
 
 VPATH   += :keystore
+VPATH   += :keystore/client
 CXXSRCS += auth_token_table.cpp
 CXXSRCS += blob.cpp
+CXXSRCS += client.cpp
 CXXSRCS += confirmation_manager.cpp
 CXXSRCS += grant_store.cpp
 CXXSRCS += key_store_service.cpp
@@ -36,6 +38,8 @@ CXXSRCS += key_attestation_log_handler.cpp
 CXXSRCS += keystore_attestation_id.cpp
 CXXSRCS += KeymasterArguments.cpp
 CXXSRCS += KeyStore.cpp
+CXXSRCS += keystore_client_impl.cpp
+CXXSRCS += keystore_client.pb.cpp
 CXXSRCS += legacy_keymaster_device_wrapper.cpp
 CXXSRCS += operation.cpp
 CXXSRCS += OperationResult.cpp
@@ -52,5 +56,14 @@ STACKSIZE = $(CONFIG_ANDROID_KEYSTORE_STACKSIZE)
 
 MAINSRC = keystore_main.cpp
 PROGNAME += keystore
+
+ifneq ($(CONFIG_ANDROID_KEYSTORE_TOOL),)
+CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/external/libchrome/libchrome
+# KeyStore Client tool
+UID = 1000
+MODE = S_ISUID
+MAINSRC += keystore_tool.cpp
+PROGNAME += keystore_tool
+endif
 
 include $(APPDIR)/Application.mk
