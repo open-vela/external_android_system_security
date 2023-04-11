@@ -19,6 +19,7 @@ config ANDROID_KEYSTORE
 	depends on ANDROID_BINDER
 	select ANDROID_HARDWARE_INTERFACES
 	select ANDROID_LIBHIDL
+	select ANDROID_KEYMASTER
 	default n
 	---help---
 		Keystore, the codebase come from AOSP
@@ -27,3 +28,11 @@ config ANDROID_KEYSTORE_STACKSIZE
 	int "keystore stack size"
 	depends on ANDROID_KEYSTORE
 	default DEFAULT_TASK_STACKSIZE
+
+config ANDROID_KEYSTORE_TOOL
+	tristate "Keystore client command line tool"
+	depends on ANDROID_KEYSTORE
+	select LIB_CHROMIUM
+	default n
+	---help---
+		Keystore client command line tool
