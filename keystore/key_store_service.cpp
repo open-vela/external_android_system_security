@@ -181,8 +181,8 @@ Status KeyStoreService::get(const String16& name, int32_t uid, ::std::vector<uin
 }
 
 Status KeyStoreService::insert(const String16& name, const ::std::vector<uint8_t>& item,
-                               int targetUid, int32_t flags, int32_t* aidl_return) {
-    targetUid = getEffectiveUid(targetUid);
+                               int32_t uid, int32_t flags, int32_t* aidl_return) {
+    uid_t targetUid = getEffectiveUid(uid);
     KeyStoreServiceReturnCode result =
         checkBinderPermissionAndKeystoreState(P_INSERT, targetUid, flags & KEYSTORE_FLAG_ENCRYPTED);
     if (!result.isOk()) {
@@ -206,8 +206,8 @@ Status KeyStoreService::insert(const String16& name, const ::std::vector<uint8_t
     return Status::ok();
 }
 
-Status KeyStoreService::del(const String16& name, int targetUid, int32_t* aidl_return) {
-    targetUid = getEffectiveUid(targetUid);
+Status KeyStoreService::del(const String16& name, int32_t uid, int32_t* aidl_return) {
+    uid_t targetUid = getEffectiveUid(uid);
     if (!checkBinderPermission(P_DELETE, targetUid)) {
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
         return Status::ok();
@@ -226,8 +226,8 @@ Status KeyStoreService::del(const String16& name, int targetUid, int32_t* aidl_r
     return Status::ok();
 }
 
-Status KeyStoreService::exist(const String16& name, int targetUid, int32_t* aidl_return) {
-    targetUid = getEffectiveUid(targetUid);
+Status KeyStoreService::exist(const String16& name, int32_t uid, int32_t* aidl_return) {
+    uid_t targetUid = getEffectiveUid(uid);
     if (!checkBinderPermission(P_EXIST, targetUid)) {
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
         return Status::ok();
@@ -240,9 +240,9 @@ Status KeyStoreService::exist(const String16& name, int targetUid, int32_t* aidl
     return Status::ok();
 }
 
-Status KeyStoreService::list(const String16& prefix, int32_t targetUid,
+Status KeyStoreService::list(const String16& prefix, int32_t uid,
                              ::std::vector<::android::String16>* matches) {
-    targetUid = getEffectiveUid(targetUid);
+    uid_t targetUid = getEffectiveUid(uid);
     if (!checkBinderPermission(P_LIST, targetUid)) {
         return Status::fromServiceSpecificError(
             static_cast<int32_t>(ResponseCode::PERMISSION_DENIED));
@@ -614,8 +614,8 @@ Status KeyStoreService::addRngEntropy(
 Status KeyStoreService::generateKey(
     const ::android::sp<::android::security::keystore::IKeystoreKeyCharacteristicsCallback>& cb,
     const String16& name, const KeymasterArguments& params, const ::std::vector<uint8_t>& entropy,
-    int uid, int flags, int32_t* _aidl_return) {
-    uid = getEffectiveUid(uid);
+    int32_t targetUid, int32_t flags, int32_t* _aidl_return) {
+    uid_t uid = getEffectiveUid(targetUid);
     auto logOnScopeExit = android::base::make_scope_guard([&] {
         if (__android_log_security()) {
             android_log_event_list(SEC_TAG_AUTH_KEY_GENERATED)
@@ -717,8 +717,8 @@ Status KeyStoreService::getKeyCharacteristics(
 Status KeyStoreService::importKey(
     const ::android::sp<::android::security::keystore::IKeystoreKeyCharacteristicsCallback>& cb,
     const String16& name, const KeymasterArguments& params, int32_t format,
-    const ::std::vector<uint8_t>& keyData, int uid, int flags, int32_t* _aidl_return) {
-    uid = getEffectiveUid(uid);
+    const ::std::vector<uint8_t>& keyData, int32_t targetUid, int32_t flags, int32_t* _aidl_return) {
+    uid_t uid = getEffectiveUid(targetUid);
     auto logOnScopeExit = android::base::make_scope_guard([&] {
         if (__android_log_security()) {
             android_log_event_list(SEC_TAG_KEY_IMPORTED)

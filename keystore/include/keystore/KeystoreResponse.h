@@ -52,7 +52,7 @@ struct KeystoreResponse : public ::android::Parcelable {
     const String16* error_msg() const { return error_msg_.get(); }
 
   private:
-    int response_code_;
+    int32_t response_code_;
     std::unique_ptr<String16> error_msg_;
 };
 
