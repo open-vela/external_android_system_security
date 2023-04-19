@@ -16,6 +16,6 @@
 
 ifneq ($(CONFIG_ANDROID_KEYSTORE),)
 CONFIGURED_APPS += $(APPDIR)/external/android/system/security
-CXXFLAGS += ${shell $(INCDIR) $(INCDIROPT) "$(CC)" $(APPDIR)/external/android/system/security/keystore/binder}
-CXXFLAGS += ${shell $(INCDIR) $(INCDIROPT) "$(CC)" $(APPDIR)/external/android/system/security/keystore/include}
+CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/external/android/system/security/keystore/binder
+CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/external/android/system/security/keystore/include
 endif
