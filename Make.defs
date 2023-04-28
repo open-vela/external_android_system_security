@@ -18,4 +18,5 @@ ifneq ($(CONFIG_ANDROID_KEYSTORE),)
 CONFIGURED_APPS += $(APPDIR)/external/android/system/security
 CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/external/android/system/security/keystore/binder
 CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/external/android/system/security/keystore/include
+CFLAGS += ${INCDIR_PREFIX}$(APPDIR)/external/android/system/security/keystore/include
 endif
