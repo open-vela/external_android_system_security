@@ -53,6 +53,7 @@ CXXSRCS  += $(patsubst %$(AIDLEXT),%$(CXXEXT),$(AIDLSRCS))
 MODULE    = $(CONFIG_ANDROID_KEYSTORE)
 PRIORITY  = SCHED_PRIORITY_DEFAULT
 STACKSIZE = $(CONFIG_ANDROID_KEYSTORE_STACKSIZE)
+CXXFLAGS += -DGRANT_ROOT_ALL_PERMISSIONS
 
 MAINSRC = keystore_main.cpp
 PROGNAME += keystore
@@ -60,8 +61,6 @@ PROGNAME += keystore
 ifneq ($(CONFIG_ANDROID_KEYSTORE_TOOL),)
 CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/external/libchrome/libchrome
 # KeyStore Client tool
-UID = 1000
-MODE = S_ISUID
 MAINSRC += keystore_tool.cpp
 PROGNAME += keystore_tool
 endif
