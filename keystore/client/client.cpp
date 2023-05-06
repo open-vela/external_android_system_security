@@ -80,6 +80,9 @@ int removeDir(FAR const char* path)
             result = resul2;
         }
         closedir(pDir);
+    } else {
+        ALOGW("dir %s not exist", path);
+        return 0;
     }
 
     if (!result)
@@ -203,9 +206,14 @@ int keyStoreDel(FAR const char* name, size_t nameLength)
         keyNameEncrypt.c_str(), encryptReturnCode.getErrorCode(),
         keyNameAuthenticate.c_str(), authenticateReturnCode.getErrorCode());
     int ret = remove(getSaveFilePath(keyName).c_str());
-    return encryptReturnCode.isOk() && authenticateReturnCode.isOk() && ret == 0
-        ? KEYSTORE_NO_ERROR
-        : KEYSTORE_SYSTEM_ERROR;
+    if (encryptReturnCode.isOk() && authenticateReturnCode.isOk() && ret == 0) {
+        return KEYSTORE_NO_ERROR;
+    } else if (!encryptReturnCode.isOk()) {
+        return encryptReturnCode.getErrorCode();
+    } else if (!authenticateReturnCode.isOk()) {
+        return authenticateReturnCode.getErrorCode();
+    }
+    return KEYSTORE_SYSTEM_ERROR;
 }
 
 int keyStoreExist(FAR const char* name, size_t nameLength)
@@ -239,5 +247,10 @@ int keyStoreReset(void)
     KeyStoreNativeReturnCode returnCode = keystore->deleteAllKeys();
     ALOGD("keyStoreReset returnCode=%d end", returnCode.getErrorCode());
     int ret = removeDir(getUidDir(geteuid()).c_str());
-    return returnCode.isOk() && ret == 0 ? KEYSTORE_NO_ERROR : KEYSTORE_SYSTEM_ERROR;
+    if (returnCode.isOk() && ret == 0) {
+        return KEYSTORE_NO_ERROR;
+    } else if (!returnCode.isOk()) {
+        return returnCode.getErrorCode();
+    }
+    return KEYSTORE_SYSTEM_ERROR;
 }
