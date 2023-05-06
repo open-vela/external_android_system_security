@@ -108,7 +108,10 @@ KeymasterDevices initializeKeymasters() {
     CHECK(softdev.get()) << "Unable to create software Keymaster Device";
     result[SecurityLevel::SOFTWARE] = new Keymaster3(softdev, "Software");
 #elif defined(CONFIG_KEYMASTER_TEE)
-    // init the tee device
+    KeymasterDevices result;
+    auto teedev = android::keystore::makeTeeKeymasterDevice();
+    CHECK(teedev.get()) << "Unable to create Tee Keymaster Device";
+    result[SecurityLevel::TRUSTED_ENVIRONMENT] = new Keymaster3(teedev, "Tee");
 #else
     auto serviceManager = IServiceManager::getService();
     CHECK(serviceManager.get()) << "Failed to get ServiceManager";

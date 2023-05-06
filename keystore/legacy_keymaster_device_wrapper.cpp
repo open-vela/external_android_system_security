@@ -25,6 +25,9 @@
 #include <hardware/keymaster_defs.h>
 #include <keymaster/keymaster_configuration.h>
 #include <keymaster/soft_keymaster_device.h>
+#if defined(CONFIG_KEYMASTER_TEE)
+#include <keymaster/tee_keymaster_device.h>
+#endif
 
 namespace android {
 namespace keystore {
@@ -543,5 +546,19 @@ sp<IKeymasterDevice> makeSoftwareKeymasterDevice() {
     return new LegacyKeymasterDeviceWrapper(dev);
 }
 
+#if defined(CONFIG_KEYMASTER_TEE)
+sp<IKeymasterDevice> makeTeeKeymasterDevice() {
+    keymaster2_device_t* dev = nullptr;
+    dev = (new keymaster::TeeKeymasterDevice(NULL))->keymaster2_device();
+
+    auto kmrc = ::keymaster::ConfigureDevice(dev);
+    if (kmrc != KM_ERROR_OK) {
+        dev->common.close(&dev->common);
+        return nullptr;
+    }
+
+    return new LegacyKeymasterDeviceWrapper(dev);
+}
+#endif
 }  // namespace keystore
 }  // namespace android
