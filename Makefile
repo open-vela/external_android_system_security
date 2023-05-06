@@ -65,4 +65,13 @@ MAINSRC += keystore_tool.cpp
 PROGNAME += keystore_tool
 endif
 
+ifneq ($(CONFIG_ANDROID_KEYSTORE_TEST),)
+VPATH    += :keystore/tests
+PROGNAME += keystoreUnitTest
+MAINSRC  += gtest_main_entry.cpp
+CXXSRCS  += KeyAttestationApplicationId.cpp
+CXXSRCS  += KeyAttestationPackageInfo.cpp
+CXXSRCS  += Signature.cpp
+endif
+
 include $(APPDIR)/Application.mk

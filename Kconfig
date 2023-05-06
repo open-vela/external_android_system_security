@@ -36,3 +36,9 @@ config ANDROID_KEYSTORE_TOOL
 	default n
 	---help---
 		Keystore client command line tool
+
+config ANDROID_KEYSTORE_TEST
+	tristate "KeyStore Test Case"
+	depends on ANDROID_KEYSTORE
+	depends on LIB_GOOGLETEST
+	default n
