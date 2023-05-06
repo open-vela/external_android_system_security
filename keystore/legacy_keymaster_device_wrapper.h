@@ -83,7 +83,9 @@ class LegacyKeymasterDeviceWrapper : public IKeymasterDevice {
 };
 
 sp<IKeymasterDevice> makeSoftwareKeymasterDevice();
-
+#if defined(CONFIG_KEYMASTER_TEE)
+sp<IKeymasterDevice> makeTeeKeymasterDevice();
+#endif
 }  // namespace keystore
 }  // namespace android
 
