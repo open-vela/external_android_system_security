@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <binder/IPCThreadState.h>
 #include <keystore/keymaster_types.h>
 #include <keystore/keystore_client_impl.h>
 
@@ -34,7 +35,7 @@ int createDir(FAR const char* path)
 {
     int ret = 0;
     if ((ret = access(path, F_OK)) != 0) {
-        ALOGD("to mkdir %s", path);
+        ALOGV("to mkdir %s", path);
         if ((ret = mkdir(path, 0755)) == -1) {
             ALOGE("mkdir error:%s\n", path);
             return -1;
@@ -45,7 +46,7 @@ int createDir(FAR const char* path)
 
 int removeDir(FAR const char* path)
 {
-    ALOGD("to remove dir %s", path);
+    ALOGV("to remove dir %s", path);
     FAR DIR* pDir = opendir(path);
     size_t path_len = strlen(path);
     int result = -1;
@@ -98,7 +99,7 @@ std::string getUidDir(int32_t uid)
 std::string getSaveFilePath(const std::string& name)
 {
     std::string dir = getUidDir(geteuid()) + "/" + name;
-    ALOGD("getSaveFilePath %s", dir.c_str());
+    ALOGV("getSaveFilePath %s", dir.c_str());
     return dir;
 }
 
@@ -127,7 +128,7 @@ int keyStoreInsert(FAR const char* name, size_t nameLength,
 
     std::string keyName(name, nameLength);
 
-    ALOGD("keyStoreInsert key=%s, item length=%zu start", keyName.c_str(), itemLength);
+    ALOGV("keyStoreInsert key=%s, item length=%zu start", keyName.c_str(), itemLength);
 
     if (!createAppSaveDirs()) {
         ALOGE("keyStoreInsert createAppSaveDirs failed");
@@ -138,6 +139,7 @@ int keyStoreInsert(FAR const char* name, size_t nameLength,
     std::string input((const char*)item, itemLength);
     std::string output;
 
+    android::ProcessState::self()->startThreadPool();
     if (!keystore->encryptWithAuthentication(keyName, input, KEYSTORE_FLAG_NONE, &output)) {
         ALOGE("EncryptWithAuthentication failed.\n");
         return KEYSTORE_SYSTEM_ERROR;
@@ -177,6 +179,7 @@ int keyStoreGet(FAR const char* name, size_t nameLength,
     file.close();
 
     std::string output;
+    android::ProcessState::self()->startThreadPool();
     if (!keystore->decryptWithAuthentication(keyName, input, &output)) {
         ALOGE("DecryptWithAuthentication failed.\n");
         return KEYSTORE_SYSTEM_ERROR;
@@ -202,7 +205,7 @@ int keyStoreDel(FAR const char* name, size_t nameLength)
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     KeyStoreNativeReturnCode encryptReturnCode = keystore->deleteKey(keyNameEncrypt);
     KeyStoreNativeReturnCode authenticateReturnCode = keystore->deleteKey(keyNameAuthenticate);
-    ALOGD("keyStoreDel keyNameEncrypt=%s, encryptReturnCode=%d, keyNameAuthenticate=%s, authenticateReturnCode=%d",
+    ALOGV("keyStoreDel keyNameEncrypt=%s, encryptReturnCode=%d, keyNameAuthenticate=%s, authenticateReturnCode=%d",
         keyNameEncrypt.c_str(), encryptReturnCode.getErrorCode(),
         keyNameAuthenticate.c_str(), authenticateReturnCode.getErrorCode());
     int ret = remove(getSaveFilePath(keyName).c_str());
@@ -235,7 +238,7 @@ int keyStoreExist(FAR const char* name, size_t nameLength)
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     bool encryptExist = keystore->doesKeyExist(keyNameEncrypt);
     bool authenticateExist = keystore->doesKeyExist(keyNameAuthenticate);
-    ALOGD("keyStoreExist keyNameEncrypt=%s, encryptExist=%d, keyNameAuthenticate=%s, authenticateExist=%d",
+    ALOGV("keyStoreExist keyNameEncrypt=%s, encryptExist=%d, keyNameAuthenticate=%s, authenticateExist=%d",
         keyNameEncrypt.c_str(), encryptExist,
         keyNameAuthenticate.c_str(), authenticateExist);
     return encryptExist && authenticateExist ? KEYSTORE_NO_ERROR : KEYSTORE_KEY_NOT_FOUND;
@@ -245,7 +248,7 @@ int keyStoreReset(void)
 {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     KeyStoreNativeReturnCode returnCode = keystore->deleteAllKeys();
-    ALOGD("keyStoreReset returnCode=%d end", returnCode.getErrorCode());
+    ALOGV("keyStoreReset returnCode=%d end", returnCode.getErrorCode());
     int ret = removeDir(getUidDir(geteuid()).c_str());
     if (returnCode.isOk() && ret == 0) {
         return KEYSTORE_NO_ERROR;
