@@ -16,7 +16,7 @@
 
 #include "keystore/client.h"
 #include <base/command_line.h>
-#include <binder/IPCThreadState.h>
+#include <log/log.h>
 
 using base::CommandLine;
 
@@ -100,8 +100,6 @@ extern "C" int main(int argc, char* argv[])
     CommandLine::Init(argc, argv);
     CommandLine* command_line = CommandLine::ForCurrentProcess();
     CommandLine::StringVector args = command_line->GetArgs();
-
-    android::ProcessState::self()->startThreadPool();
 
     if (args.empty()) {
         printUsageAndExit();
