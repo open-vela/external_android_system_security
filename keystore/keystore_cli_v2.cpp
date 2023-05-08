@@ -61,7 +61,7 @@ void PrintUsageAndExit() {
     printf("Commands: brillo-platform-test [--prefix=<test_name_prefix>] [--test_for_0_3]\n"
            "          list-brillo-tests\n"
            "          add-entropy --input=<entropy> [--seclevel=software|strongbox|tee(default)]\n"
-           "          generate --name=<key_name> [--seclevel=software|strongbox|tee(default)]\n"
+           "          generate --name=<key_name> --algorithm=<AES-128|AES-256(default)|AES-128-GCM|AES-256-GCM|HMAC-SHA256-256> [--seclevel=software|strongbox|tee(default)]\n"
            "          get-chars --name=<key_name>\n"
            "          export --name=<key_name>\n"
            "          delete --name=<key_name>\n"
@@ -69,7 +69,7 @@ void PrintUsageAndExit() {
            "          exists --name=<key_name>\n"
            "          list [--prefix=<key_name_prefix>]\n"
            "          list-apps-with-keys\n"
-           "          sign-verify --name=<key_name>\n"
+           "          sign-verify --name=<key_name> --algorithm=<HMAC-SHA256-256(default)>\n"
            "          [en|de]crypt --name=<key_name> --in=<file> --out=<file>\n"
            "                       [--seclevel=software|strongbox|tee(default)]\n"
            "          confirmation --prompt_text=<PromptText> --extra_data=<hex>\n"
@@ -137,13 +137,20 @@ bool TestKey(const std::string& name, bool required, const AuthorizationSet& par
     return (hardware_backed || !required);
 }
 
-AuthorizationSet GetRSASignParameters(uint32_t key_size, bool sha256_only) {
+AuthorizationSet GetRSASignParameters(uint32_t key_size, bool sha256_only, bool auth_bound = false) {
     AuthorizationSetBuilder parameters;
     parameters.RsaSigningKey(key_size, 65537)
         .Digest(Digest::SHA_2_256)
         .Padding(PaddingMode::RSA_PKCS1_1_5_SIGN)
-        .Padding(PaddingMode::RSA_PSS)
-        .Authorization(TAG_NO_AUTH_REQUIRED);
+        .Padding(PaddingMode::RSA_PSS);
+    if (!auth_bound) {
+        parameters.Authorization(TAG_NO_AUTH_REQUIRED);
+    } else {
+        // Gatekeeper normally generates the secure user id.
+        // Using zero allows the key to be created, but it will not be usuable.
+        parameters.Authorization(TAG_USER_SECURE_ID, 0);
+    }
+
     if (!sha256_only) {
         parameters.Digest(Digest::SHA_2_224).Digest(Digest::SHA_2_384).Digest(Digest::SHA_2_512);
     }
@@ -170,9 +177,14 @@ AuthorizationSet GetECDSAParameters(uint32_t key_size, bool sha256_only) {
     return std::move(parameters);
 }
 
-AuthorizationSet GetAESParameters(uint32_t key_size, bool with_gcm_mode) {
+AuthorizationSet GetAESParameters(uint32_t key_size, bool with_gcm_mode, bool auth_bound = false) {
     AuthorizationSetBuilder parameters;
-    parameters.AesEncryptionKey(key_size).Authorization(TAG_NO_AUTH_REQUIRED);
+    parameters.AesEncryptionKey(key_size);
+    if (!auth_bound) {
+        parameters.Authorization(TAG_NO_AUTH_REQUIRED);
+    } else {
+        parameters.Authorization(TAG_USER_SECURE_ID, 0);
+    }
     if (with_gcm_mode) {
         parameters.Authorization(TAG_BLOCK_MODE, BlockMode::GCM)
             .Authorization(TAG_MIN_MAC_LENGTH, 128);
@@ -185,13 +197,21 @@ AuthorizationSet GetAESParameters(uint32_t key_size, bool with_gcm_mode) {
     return std::move(parameters);
 }
 
-AuthorizationSet GetHMACParameters(uint32_t key_size, Digest digest) {
+AuthorizationSet GetHMACParameters(uint32_t key_size, Digest digest, uint32_t min_mac_length, bool auth_bound = false) {
     AuthorizationSetBuilder parameters;
     parameters.HmacKey(key_size)
         .Digest(digest)
-        .Authorization(TAG_MIN_MAC_LENGTH, 224)
-        .Authorization(TAG_NO_AUTH_REQUIRED);
+        .Authorization(TAG_MIN_MAC_LENGTH, min_mac_length);
+    if (!auth_bound) {
+        parameters.Authorization(TAG_NO_AUTH_REQUIRED);
+    } else {
+        parameters.Authorization(TAG_USER_SECURE_ID, 0);
+    }
     return std::move(parameters);
+}
+
+AuthorizationSet GetHMACParameters(uint32_t key_size, Digest digest) {
+    return GetHMACParameters(key_size, digest, 224);
 }
 
 std::vector<TestCase> GetTestCases() {
@@ -288,23 +308,31 @@ int AddEntropy(const std::string& input, int32_t flags) {
     return result;
 }
 
-// Note: auth_bound keys created with this tool will not be usable.
-int GenerateKey(const std::string& name, int32_t flags, bool auth_bound) {
-    std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
-    AuthorizationSetBuilder params;
-    params.RsaSigningKey(2048, 65537)
-        .Digest(Digest::SHA_2_224)
-        .Digest(Digest::SHA_2_256)
-        .Digest(Digest::SHA_2_384)
-        .Digest(Digest::SHA_2_512)
-        .Padding(PaddingMode::RSA_PKCS1_1_5_SIGN)
-        .Padding(PaddingMode::RSA_PSS);
-    if (auth_bound) {
-        // Gatekeeper normally generates the secure user id.
-        // Using zero allows the key to be created, but it will not be usuable.
-        params.Authorization(TAG_USER_SECURE_ID, 0);
+auto GetGenerateKeyParameters(const std::string& algorithm, bool auth_bound) {
+    if (algorithm == "AES-128") {
+        return std::tuple(true, GetAESParameters(128, false, auth_bound));
+    } else if (algorithm == "AES-256") {
+        return std::tuple(true, GetAESParameters(256, false, auth_bound));
+    } else if (algorithm == "AES-128-GCM") {
+        return std::tuple(true, GetAESParameters(128, true, auth_bound));
+    } else if (algorithm == "AES-256-GCM") {
+        return std::tuple(true, GetAESParameters(256, true, auth_bound));
+    } else if (algorithm == "HMAC-SHA256-256") {
+        return std::tuple(true, GetHMACParameters(256, Digest::SHA_2_256, 256, auth_bound));
+    } else if (algorithm == "RSA-2048") {
+        return std::tuple(true, GetRSASignParameters(2048, false, auth_bound));
     } else {
-        params.Authorization(TAG_NO_AUTH_REQUIRED);
+        printf("GetGenerateKeyParameters failed: unsupported algorithm %s\n", algorithm.c_str());
+    }
+    return std::tuple(false, AuthorizationSet());
+}
+
+// Note: auth_bound keys created with this tool will not be usable.
+int GenerateKey(const std::string& name, const std::string& algorithm, int32_t flags, bool auth_bound) {
+    std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
+    auto [success, params] = GetGenerateKeyParameters(algorithm, auth_bound);
+    if (!success) {
+        return (int)ResponseCode::SYSTEM_ERROR;
     }
     AuthorizationSet hardware_enforced_characteristics;
     AuthorizationSet software_enforced_characteristics;
@@ -402,11 +430,39 @@ int ListAppsWithKeys() {
     return 0;
 }
 
-int SignAndVerify(const std::string& name) {
+AuthorizationSet GetHMACSignOrVerifyParameters(uint32_t size, bool sign) {
+    AuthorizationSetBuilder params;
+    params.Digest(Digest::SHA_2_256);
+    if (sign) {
+        params.Authorization(TAG_MAC_LENGTH, size);
+    }
+    return std::move(params);
+}
+
+AuthorizationSet GetRSASignOrVerifyParameters() {
+    AuthorizationSetBuilder params;
+    params.Padding(PaddingMode::RSA_PKCS1_1_5_SIGN);
+    params.Digest(Digest::SHA_2_256);
+    return std::move(params);
+}
+
+auto GetSignAndVerifyParameters(const std::string &algorithm) {
+    if (algorithm == "HMAC-SHA256-256") {
+        return std::tuple(true, GetHMACSignOrVerifyParameters(256, true), GetHMACSignOrVerifyParameters(256, false));
+    } else if (algorithm == "RSA-2048") {
+        return std::tuple(true, GetRSASignOrVerifyParameters(), GetRSASignOrVerifyParameters());
+    } else {
+        printf("GetSignAndVerifyParameters failed: unsupported algorithm %s\n", algorithm.c_str());
+    }
+    return std::tuple(false, AuthorizationSet(), AuthorizationSet());
+}
+
+int SignAndVerify(const std::string& name, const std::string &algorithm) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
-    AuthorizationSetBuilder sign_params;
-    sign_params.Padding(PaddingMode::RSA_PKCS1_1_5_SIGN);
-    sign_params.Digest(Digest::SHA_2_256);
+    auto [success, sign_params, verify_params] = GetSignAndVerifyParameters(algorithm);
+    if (!success) {
+        return (int)ResponseCode::SYSTEM_ERROR;
+    }
     AuthorizationSet output_params;
     uint64_t handle;
     auto result =
@@ -429,7 +485,7 @@ int SignAndVerify(const std::string& name) {
     std::string signature_to_verify = output_data;
     output_data.clear();
     result =
-        keystore->beginOperation(KeyPurpose::VERIFY, name, sign_params, &output_params, &handle);
+        keystore->beginOperation(KeyPurpose::VERIFY, name, verify_params, &output_params, &handle);
     result = keystore->finishOperation(handle, empty_params, "data_to_sign", signature_to_verify,
                                        &output_params, &output_data);
     if (result == ErrorCode::VERIFICATION_FAILED) {
@@ -480,6 +536,13 @@ uint32_t securityLevelOption2Flags(const CommandLine& cmd) {
         }
     }
     return KEYSTORE_FLAG_NONE;
+}
+
+std::string getValueFromCommandLine(const CommandLine& cmd, const char *key, const char *defaultValue) {
+    if (cmd.HasSwitch(key)) {
+        return cmd.GetSwitchValueASCII(key);
+    }
+    return defaultValue;
 }
 
 class ConfirmationListener
@@ -608,7 +671,7 @@ int Confirmation(const std::string& promptText, const std::string& extraDataHex,
 
 }  // namespace
 
-int main(int argc, char** argv) {
+extern "C" int main(int argc, char** argv) {
     CommandLine::Init(argc, argv);
     CommandLine* command_line = CommandLine::ForCurrentProcess();
     CommandLine::StringVector args = command_line->GetArgs();
@@ -628,6 +691,7 @@ int main(int argc, char** argv) {
                           securityLevelOption2Flags(*command_line));
     } else if (args[0] == "generate") {
         return GenerateKey(command_line->GetSwitchValueASCII("name"),
+                           getValueFromCommandLine(*command_line, "algorithm", "AES-256"),
                            securityLevelOption2Flags(*command_line),
                            command_line->HasSwitch("auth_bound"));
     } else if (args[0] == "get-chars") {
@@ -645,7 +709,8 @@ int main(int argc, char** argv) {
     } else if (args[0] == "list-apps-with-keys") {
         return ListAppsWithKeys();
     } else if (args[0] == "sign-verify") {
-        return SignAndVerify(command_line->GetSwitchValueASCII("name"));
+        return SignAndVerify(command_line->GetSwitchValueASCII("name"),
+                             getValueFromCommandLine(*command_line, "algorithm", "HMAC-SHA256-256"));
     } else if (args[0] == "encrypt") {
         return Encrypt(
             command_line->GetSwitchValueASCII("name"), command_line->GetSwitchValueASCII("in"),

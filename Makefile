@@ -63,6 +63,10 @@ CXXFLAGS += ${INCDIR_PREFIX}$(APPDIR)/external/libchrome/libchrome
 # KeyStore Client tool
 MAINSRC += keystore_tool.cpp
 PROGNAME += keystore_tool
+
+# Android KeyStore Client tool
+MAINSRC  += keystore_cli_v2.cpp
+PROGNAME += keystore_client_v2
 endif
 
 ifneq ($(CONFIG_ANDROID_KEYSTORE_TEST),)
