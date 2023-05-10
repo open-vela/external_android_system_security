@@ -304,7 +304,7 @@ void WriteFile(const std::string& filename, const std::string& content) {
 int AddEntropy(const std::string& input, int32_t flags) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     int32_t result = keystore->addRandomNumberGeneratorEntropy(input, flags).getErrorCode();
-    printf("AddEntropy: %d\n", result);
+    printf("AddEntropy: %" PRId32 "\n", result);
     return result;
 }
 
@@ -338,7 +338,7 @@ int GenerateKey(const std::string& name, const std::string& algorithm, int32_t f
     AuthorizationSet software_enforced_characteristics;
     auto result = keystore->generateKey(name, params, flags, &hardware_enforced_characteristics,
                                         &software_enforced_characteristics);
-    printf("GenerateKey: %d\n", result.getErrorCode());
+    printf("GenerateKey: %" PRId32 "\n", result.getErrorCode());
     if (result.isOk()) {
         PrintKeyCharacteristics(hardware_enforced_characteristics,
                                 software_enforced_characteristics);
@@ -352,7 +352,7 @@ int GetCharacteristics(const std::string& name) {
     AuthorizationSet software_enforced_characteristics;
     auto result = keystore->getKeyCharacteristics(name, &hardware_enforced_characteristics,
                                                   &software_enforced_characteristics);
-    printf("GetCharacteristics: %d\n", result.getErrorCode());
+    printf("GetCharacteristics: %" PRId32 "\n", result.getErrorCode());
     if (result.isOk()) {
         PrintKeyCharacteristics(hardware_enforced_characteristics,
                                 software_enforced_characteristics);
@@ -364,21 +364,21 @@ int ExportKey(const std::string& name) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     std::string data;
     int32_t result = keystore->exportKey(KeyFormat::X509, name, &data).getErrorCode();
-    printf("ExportKey: %d (%zu)\n", result, data.size());
+    printf("ExportKey: %" PRId32 " (%zu)\n", result, data.size());
     return result;
 }
 
 int DeleteKey(const std::string& name) {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     int32_t result = keystore->deleteKey(name).getErrorCode();
-    printf("DeleteKey: %d\n", result);
+    printf("DeleteKey: %" PRId32 "\n", result);
     return result;
 }
 
 int DeleteAllKeys() {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     int32_t result = keystore->deleteAllKeys().getErrorCode();
-    printf("DeleteAllKeys: %d\n", result);
+    printf("DeleteAllKeys: %" PRId32 "\n", result);
     return result;
 }
 
@@ -420,7 +420,7 @@ int ListAppsWithKeys() {
         return 1;
     }
     if (!KeyStoreNativeReturnCode(aidl_return).isOk()) {
-        fprintf(stderr, "Requesting uids of auth bound keys failed with code %d.\n", aidl_return);
+        fprintf(stderr, "Requesting uids of auth bound keys failed with code %" PRId32 ".\n", aidl_return);
         return 1;
     }
     printf("Apps with auth bound keys:\n");
@@ -468,7 +468,7 @@ int SignAndVerify(const std::string& name, const std::string &algorithm) {
     auto result =
         keystore->beginOperation(KeyPurpose::SIGN, name, sign_params, &output_params, &handle);
     if (!result.isOk()) {
-        printf("Sign: BeginOperation failed: %d\n", result.getErrorCode());
+        printf("Sign: BeginOperation failed: %" PRId32 "\n", result.getErrorCode());
         return result.getErrorCode();
     }
     AuthorizationSet empty_params;
@@ -477,7 +477,7 @@ int SignAndVerify(const std::string& name, const std::string &algorithm) {
                                        std::string() /*signature_to_verify*/, &output_params,
                                        &output_data);
     if (!result.isOk()) {
-        printf("Sign: FinishOperation failed: %d\n", result.getErrorCode());
+        printf("Sign: FinishOperation failed: %" PRId32 "\n", result.getErrorCode());
         return result.getErrorCode();
     }
     printf("Sign: %zu bytes.\n", output_data.size());
@@ -493,7 +493,7 @@ int SignAndVerify(const std::string& name, const std::string &algorithm) {
         return result.getErrorCode();
     }
     if (!result.isOk()) {
-        printf("Verify: FinishOperation failed: %d\n", result.getErrorCode());
+        printf("Verify: FinishOperation failed: %" PRId32 "\n", result.getErrorCode());
         return result.getErrorCode();
     }
     printf("Verify: OK\n");
@@ -616,7 +616,7 @@ int Confirmation(const std::string& promptText, const std::string& extraDataHex,
     }
     ConfirmationResponseCode responseCode = static_cast<ConfirmationResponseCode>(aidl_return);
     if (responseCode != ConfirmationResponseCode::OK) {
-        printf("Presenting confirmation prompt failed with response code %d.\n", responseCode);
+        printf("Presenting confirmation prompt failed with response code %" PRId32 ".\n", static_cast<int32_t>(responseCode));
         return 1;
     }
     printf("Waiting for prompt to complete - use Ctrl+C to abort...\n");
@@ -636,8 +636,8 @@ int Confirmation(const std::string& promptText, const std::string& extraDataHex,
             if (responseCode == ConfirmationResponseCode::Ignored) {
                 // The confirmation was completed by the user so take the response
             } else if (responseCode != ConfirmationResponseCode::OK) {
-                printf("Canceling confirmation prompt failed with response code %d.\n",
-                       responseCode);
+                printf("Canceling confirmation prompt failed with response code %" PRId32 ".\n",
+                       static_cast<int32_t>(responseCode));
                 return 1;
             }
         }
@@ -648,8 +648,8 @@ int Confirmation(const std::string& promptText, const std::string& extraDataHex,
     auto [rc, dataThatWasConfirmed] = future.get();
 
     printf("Confirmation prompt completed\n"
-           "responseCode = %d\n",
-           rc);
+           "responseCode = %" PRId32 "\n",
+           static_cast<int32_t>(rc));
     printf("dataThatWasConfirmed[%zd] = {", dataThatWasConfirmed.size());
     size_t newLineCountDown = 16;
     bool hasPrinted = false;
