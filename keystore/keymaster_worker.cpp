@@ -162,7 +162,7 @@ KeymasterWorker::upgradeKeyBlob(const LockedKeyBlobEntry& lockedEntry,
 
         error = keyStore_->put(lockedEntry, newBlob, charBlob);
         if (!error.isOk()) {
-            ALOGI("upgradeKeyBlob keystore->put failed %d", error.getErrorCode());
+            ALOGI("upgradeKeyBlob keystore->put failed %" PRId32, error.getErrorCode());
             return;
         }
 
@@ -363,7 +363,7 @@ bool KeymasterWorker::pruneOperation() {
     auto rc = abort(oldest, ResponseCode::PRUNED);
     keyStore_->removeOperationDevice(oldest);
     if (operationMap_.getOperationCount() >= op_count_before_abort) {
-        ALOGE("Failed to abort pruneable operation %p, error: %d", oldest.get(), rc.getErrorCode());
+        ALOGE("Failed to abort pruneable operation %p, error: %" PRId32, oldest.get(), rc.getErrorCode());
         return false;
     }
     return true;

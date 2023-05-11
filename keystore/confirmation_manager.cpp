@@ -89,7 +89,7 @@ Status ConfirmationManager::presentConfirmationPrompt(const sp<IBinder>& listene
                                                           promptText8.string(), extraData,
                                                           locale8.string(), uiOptionsVector);
     if (responseCode != ConfirmationResponseCode::OK) {
-        ALOGW("Unexpecxted responseCode %d from promptUserConfirmation\n", responseCode);
+        ALOGW("Unexpecxted responseCode %d from promptUserConfirmation\n", static_cast<int>(responseCode));
         *aidl_return = static_cast<int32_t>(responseCode);
         return Status::ok();
     }

@@ -205,7 +205,7 @@ int keyStoreDel(FAR const char* name, size_t nameLength)
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     KeyStoreNativeReturnCode encryptReturnCode = keystore->deleteKey(keyNameEncrypt);
     KeyStoreNativeReturnCode authenticateReturnCode = keystore->deleteKey(keyNameAuthenticate);
-    ALOGV("keyStoreDel keyNameEncrypt=%s, encryptReturnCode=%d, keyNameAuthenticate=%s, authenticateReturnCode=%d",
+    ALOGV("keyStoreDel keyNameEncrypt=%s, encryptReturnCode=%" PRId32 ", keyNameAuthenticate=%s, authenticateReturnCode=%" PRId32,
         keyNameEncrypt.c_str(), encryptReturnCode.getErrorCode(),
         keyNameAuthenticate.c_str(), authenticateReturnCode.getErrorCode());
     int ret = remove(getSaveFilePath(keyName).c_str());
@@ -248,7 +248,7 @@ int keyStoreReset(void)
 {
     std::unique_ptr<KeystoreClient> keystore = CreateKeystoreInstance();
     KeyStoreNativeReturnCode returnCode = keystore->deleteAllKeys();
-    ALOGV("keyStoreReset returnCode=%d end", returnCode.getErrorCode());
+    ALOGV("keyStoreReset returnCode=%" PRId32 " end", returnCode.getErrorCode());
     int ret = removeDir(getUidDir(geteuid()).c_str());
     if (returnCode.isOk() && ret == 0) {
         return KEYSTORE_NO_ERROR;

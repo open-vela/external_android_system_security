@@ -131,7 +131,7 @@ KeyStoreServiceReturnCode updateParamsForAttestation(uid_t callingUid, Authoriza
      * returned such an invalid vector.
      */
     if (asn1_attestation_id.size() > KEY_ATTESTATION_APPLICATION_ID_MAX_SIZE) {
-        ALOGE("BUG: Gathered Attestation Application ID is too big (%d)",
+        ALOGE("BUG: Gathered Attestation Application ID is too big (%" PRId32 ")",
               static_cast<int32_t>(asn1_attestation_id.size()));
         return ErrorCode::CANNOT_ATTEST_IDS;
     }
@@ -284,7 +284,7 @@ Status KeyStoreService::listUidsOfAuthBoundKeys(std::vector<std::string>* uidsOu
     const int32_t userId = get_user_id(callingUid);
     const int32_t appId = get_app_id(callingUid);
     if (appId != AID_SYSTEM) {
-        ALOGE("Permission listUidsOfAuthBoundKeys denied for aid %d", appId);
+        ALOGE("Permission listUidsOfAuthBoundKeys denied for aid %" PRId32, appId);
         *aidl_return = static_cast<int32_t>(ResponseCode::PERMISSION_DENIED);
         return Status::ok();
     }
@@ -305,7 +305,7 @@ Status KeyStoreService::listUidsOfAuthBoundKeys(std::vector<std::string>* uidsOu
             return true;
         });
     if (rc != ResponseCode::NO_ERROR) {
-        ALOGE("Error listing blob entries for user %d", userId);
+        ALOGE("Error listing blob entries for user %" PRId32, userId);
         return Status::fromServiceSpecificError(static_cast<int32_t>(rc));
     }
 
@@ -350,7 +350,7 @@ Status KeyStoreService::onUserPasswordChanged(int32_t userId, const String16& pa
     }
 
     if (password.size() == 0) {
-        ALOGI("Secure lockscreen for user %d removed, deleting encrypted entries", userId);
+        ALOGI("Secure lockscreen for user %" PRId32 " removed, deleting encrypted entries", userId);
         mKeyStore->resetUser(userId, true);
         *aidl_return = static_cast<int32_t>(ResponseCode::NO_ERROR);
         return Status::ok();
@@ -369,7 +369,7 @@ Status KeyStoreService::onUserPasswordChanged(int32_t userId, const String16& pa
             return Status::ok();
         }
         case ::STATE_LOCKED: {
-            ALOGE("Changing user %d's password while locked, clearing old encryption", userId);
+            ALOGE("Changing user %" PRId32 "'s password while locked, clearing old encryption", userId);
             mKeyStore->resetUser(userId, true);
             *aidl_return = static_cast<int32_t>(mKeyStore->initializeUser(password8, userId));
             return Status::ok();
@@ -388,7 +388,7 @@ Status KeyStoreService::onUserAdded(int32_t userId, int32_t parentId, int32_t* a
 
     // Sanity check that the new user has an empty keystore.
     if (!mKeyStore->isEmpty(userId)) {
-        ALOGW("New user %d's keystore not empty. Clearing old entries.", userId);
+        ALOGW("New user %" PRId32 "'s keystore not empty. Clearing old entries.", userId);
     }
     // Unconditionally clear the keystore, just to be safe.
     mKeyStore->resetUser(userId, false);
@@ -1283,7 +1283,7 @@ bool KeyStoreService::checkBinderPermission(perm_t permission, int32_t targetUid
         return false;
     }
     if (!is_granted_to(callingUid, getEffectiveUid(targetUid))) {
-        ALOGW("uid %d not granted to act for %d", callingUid, targetUid);
+        ALOGW("uid %d not granted to act for %" PRId32, callingUid, targetUid);
         return false;
     }
     return true;
