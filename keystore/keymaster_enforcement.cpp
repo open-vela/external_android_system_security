@@ -464,8 +464,8 @@ bool KeymasterEnforcement::AuthTokenMatches(const AuthorizationSet& auth_set,
     if (!key_auth_type_mask.isOk()) return false;
 
     if ((uint32_t(key_auth_type_mask.value()) & auth_token.authenticatorType) == 0) {
-        ALOGE("Key requires match of auth type mask 0%uo, but token contained 0%uo",
-              key_auth_type_mask.value(), auth_token.authenticatorType);
+        ALOGE("Key requires match of auth type mask 0%" PRIo32 ", but token contained 0%" PRIo32,
+              static_cast<uint32_t>(key_auth_type_mask.value()), static_cast<uint32_t>(auth_token.authenticatorType));
         return false;
     }
 
