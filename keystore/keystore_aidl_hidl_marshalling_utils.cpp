@@ -92,7 +92,7 @@ NullOr<KeyParameter> readKeyParameterFromParcel(const android::Parcel& in) {
         result.blob = readKeymasterBlob(in);  // byte array
         break;
     default:
-        ALOGE("Unsupported KeyParameter tag %d", tag);
+        ALOGE("Unsupported KeyParameter tag %" PRId32, static_cast<int32_t>(tag));
         return {};
     }
     return result;
@@ -125,7 +125,7 @@ android::status_t writeKeyParameterToParcel(const KeyParameter& param, android::
         rc = writeKeymasterBlob(param.blob, out);
         break;
     default:
-        ALOGE("Failed to write KeyParameter: Unsupported tag %d", param.tag);
+        ALOGE("Failed to write KeyParameter: Unsupported tag %" PRId32, static_cast<uint32_t>(param.tag));
         rc = android::BAD_VALUE;
         break;
     }

@@ -184,7 +184,7 @@ void KeyStore::resetUser(uid_t userId, bool keepUnenryptedEntries) {
                 break;
 
             default:
-                ALOGE("Got unexpected return code %d from readBlobs", rc);
+                ALOGE("Got unexpected return code %" PRId32 " from readBlobs", static_cast<int32_t>(rc));
                 // This shouldn't happen.  To be on the safe side, delete it.
                 shouldDelete = true;
                 break;

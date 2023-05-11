@@ -162,7 +162,7 @@ bool KeystoreClientImpl::oneShotOperation(KeyPurpose purpose, const std::string&
     uint64_t handle;
     auto result = beginOperation(purpose, key_name, input_parameters, output_parameters, &handle);
     if (!result.isOk()) {
-        ALOGE("BeginOperation failed: %d", result.getErrorCode());
+        ALOGE("BeginOperation failed: %" PRId32, result.getErrorCode());
         return false;
     }
     AuthorizationSet empty_params;
@@ -170,7 +170,7 @@ bool KeystoreClientImpl::oneShotOperation(KeyPurpose purpose, const std::string&
     result = finishOperation(handle, empty_params, input_data, signature_to_verify, &ignored_params,
                              output_data);
     if (!result.isOk()) {
-        ALOGE("FinishOperation failed: %d", result.getErrorCode());
+        ALOGE("FinishOperation failed: %" PRId32, result.getErrorCode());
         return false;
     }
     return true;
@@ -477,7 +477,7 @@ bool KeystoreClientImpl::createOrVerifyEncryptionKey(const std::string& key_name
         if (!verified) {
             auto result = deleteKey(key_name);
             if (!result.isOk()) {
-                ALOGE("Failed to delete invalid encryption key: %d", result.getErrorCode());
+                ALOGE("Failed to delete invalid encryption key: %" PRId32, result.getErrorCode());
                 return false;
             }
             key_exists = false;
@@ -495,7 +495,7 @@ bool KeystoreClientImpl::createOrVerifyEncryptionKey(const std::string& key_name
             generateKey(key_name, key_parameters, flags, &hardware_enforced_characteristics,
                         &software_enforced_characteristics);
         if (!result.isOk()) {
-            ALOGE("Failed to generate encryption key: %d", result.getErrorCode());
+            ALOGE("Failed to generate encryption key: %" PRId32, result.getErrorCode());
             return false;
         }
         if (hardware_enforced_characteristics.size() == 0) {
@@ -516,7 +516,7 @@ bool KeystoreClientImpl::createOrVerifyAuthenticationKey(const std::string& key_
         if (!verified) {
             auto result = deleteKey(key_name);
             if (!result.isOk()) {
-                ALOGE("Failed to delete invalid authentication key: %d", result.getErrorCode());
+                ALOGE("Failed to delete invalid authentication key: %" PRId32, result.getErrorCode());
                 return false;
             }
             key_exists = false;
@@ -534,7 +534,7 @@ bool KeystoreClientImpl::createOrVerifyAuthenticationKey(const std::string& key_
             generateKey(key_name, key_parameters, flags, &hardware_enforced_characteristics,
                         &software_enforced_characteristics);
         if (!result.isOk()) {
-            ALOGE("Failed to generate authentication key: %d", result.getErrorCode());
+            ALOGE("Failed to generate authentication key: %" PRId32, result.getErrorCode());
             return false;
         }
         if (hardware_enforced_characteristics.size() == 0) {
@@ -551,7 +551,7 @@ bool KeystoreClientImpl::verifyEncryptionKeyAttributes(const std::string& key_na
     auto result = getKeyCharacteristics(key_name, &hardware_enforced_characteristics,
                                         &software_enforced_characteristics);
     if (!result.isOk()) {
-        ALOGE("Failed to query encryption key: %d", result.getErrorCode());
+        ALOGE("Failed to query encryption key: %" PRId32, result.getErrorCode());
         return false;
     }
     *verified = true;
@@ -592,7 +592,7 @@ bool KeystoreClientImpl::verifyAuthenticationKeyAttributes(const std::string& ke
     auto result = getKeyCharacteristics(key_name, &hardware_enforced_characteristics,
                                         &software_enforced_characteristics);
     if (!result.isOk()) {
-        ALOGE("Failed to query authentication key: %d", result.getErrorCode());
+        ALOGE("Failed to query authentication key: %" PRId32, result.getErrorCode());
         return false;
     }
     *verified = true;
