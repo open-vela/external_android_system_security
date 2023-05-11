@@ -119,7 +119,9 @@ static int audit_callback(void* data, security_class_t /* cls */, char* buf, siz
 }
 #endif
 
+#ifdef __ANDROID__
 static char* tctx;
+#endif
 
 int configure_selinux() {
 #ifdef __ANDROID__
