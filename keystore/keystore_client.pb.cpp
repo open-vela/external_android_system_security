@@ -16,6 +16,7 @@
 
 #include "keystore_client.pb.h"
 #include <stdint.h>
+#include <log/log.h>
 
 EncryptedData::EncryptedData()
     : init_vector_()
@@ -66,26 +67,50 @@ bool EncryptedData::SerializeToString(std::string* out)
 
 bool EncryptedData::ParseFromString(const std::string& str)
 {
-    if (str.length() == 0) {
+    if (str.size() == 0) {
+        ALOGE("ParseFromString failed: str size is 0");
         return false;
     }
 
     size_t startPos = 0;
     size_t init_vector_length;
+    if (sizeof(size_t) >= str.size()) {
+        ALOGE("ParseFromString failed:get init_vector_length failed");
+        return false;
+    }
     memcpy(&init_vector_length, str.data(), sizeof(size_t));
     startPos += sizeof(size_t);
+    if (startPos + init_vector_length >= str.size()) {
+        ALOGE("ParseFromString failed:get init_vector_ failed");
+        return false;
+    }
     init_vector_ = std::string(str.data() + startPos, init_vector_length);
     startPos += init_vector_length;
 
+    if (startPos + sizeof(size_t) >= str.size()) {
+        ALOGE("ParseFromString failed:get authentication_data_length failed");
+        return false;
+    }
     size_t authentication_data_length;
     memcpy(&authentication_data_length, str.data() + startPos, sizeof(size_t));
     startPos += sizeof(size_t);
+    if (startPos + authentication_data_length >= str.size()) {
+        ALOGE("ParseFromString failed:get authentication_data_ failed");
+        return false;
+    }
     authentication_data_ = std::string(str.data() + startPos, authentication_data_length);
     startPos += authentication_data_length;
-
+    if (startPos + sizeof(size_t) >= str.size()) {
+        ALOGE("ParseFromString failed:get encrypted_data_length failed");
+        return false;
+    }
     size_t encrypted_data_length;
     memcpy(&encrypted_data_length, str.data() + startPos, sizeof(size_t));
     startPos += sizeof(size_t);
+    if (startPos + encrypted_data_length != str.size()) {
+        ALOGE("ParseFromString failed:get encrypted_data_ failed");
+        return false;
+    }
     encrypted_data_ = std::string(str.data() + startPos, encrypted_data_length);
     return true;
 }
