@@ -217,7 +217,9 @@ Blob::Blob(const uint8_t* value, size_t valueLength, const uint8_t* info, uint8_
     memcpy(mBlob->value, value, valueLength);
 
     mBlob->info = infoLength;
-    memcpy(mBlob->value + valueLength, info, infoLength);
+    if (info != nullptr) {
+        memcpy(mBlob->value + valueLength, info, infoLength);
+    }
 
     mBlob->version = CURRENT_BLOB_VERSION;
     mBlob->type = uint8_t(type);
