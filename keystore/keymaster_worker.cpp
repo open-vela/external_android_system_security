@@ -58,25 +58,30 @@ void Worker::addRequest(WorkerTask request) {
     lock.unlock();
     pending_requests_cond_var_.notify_all();
     if (start_thread) {
-        auto worker = std::thread([this] {
-            std::unique_lock<std::mutex> lock(pending_requests_mutex_);
-            while (running_) {
-                // Wait for 30s if the request queue is empty, then kill die.
-                // Die immediately if termiate_ was set which happens in the destructor.
-                auto status = pending_requests_cond_var_.wait_for(
-                    lock, 30s, [this]() { return !pending_requests_.empty() || terminate_; });
-                if (status && !terminate_) {
-                    auto request = std::move(pending_requests_.front());
-                    lock.unlock();
-                    request();
-                    lock.lock();
-                    pending_requests_.pop();
-                } else {
-                    running_ = false;
+        auto worker = std::thread(
+#ifdef CONFIG_ANDROID_KEYSTORE_THREAD_STACKSIZE
+            std::thread::attributes().stack_size(
+                CONFIG_ANDROID_KEYSTORE_THREAD_STACKSIZE),
+#endif
+            [this] {
+                std::unique_lock<std::mutex> lock(pending_requests_mutex_);
+                while (running_) {
+                    // Wait for 30s if the request queue is empty, then kill die.
+                    // Die immediately if termiate_ was set which happens in the destructor.
+                    auto status = pending_requests_cond_var_.wait_for(
+                        lock, 30s, [this]() { return !pending_requests_.empty() || terminate_; });
+                    if (status && !terminate_) {
+                        auto request = std::move(pending_requests_.front());
+                        lock.unlock();
+                        request();
+                        lock.lock();
+                        pending_requests_.pop();
+                    } else {
+                        running_ = false;
+                    }
+                    pending_requests_cond_var_.notify_all();
                 }
-                pending_requests_cond_var_.notify_all();
-            }
-        });
+            });
         worker.detach();
     }
 }
