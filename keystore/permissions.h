@@ -20,7 +20,7 @@
 #include <unistd.h>
 
 /* Here are the permissions, actions, users, and the main function. */
-enum perm_t {
+enum perm_t : uint32_t {
     P_GET_STATE = 1 << 0,
     P_GET = 1 << 1,
     P_INSERT = 1 << 2,
