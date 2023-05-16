@@ -508,8 +508,6 @@ void KeymasterWorker::begin(LockedKeyBlobEntry lockedEntry, sp<IBinder> appToken
         sp<IBinder> operationToken =
             operationMap_.addOperation(result.handle, *keyid, purpose, dev, appToken,
                                        std::move(characteristics), opParams.hidl_data(), pruneable);
-        assert(characteristics.hardwareEnforced.size() == 0);
-        assert(characteristics.softwareEnforced.size() == 0);
         result.token = operationToken;
 
         auto operation = operationMap_.getOperation(operationToken);
