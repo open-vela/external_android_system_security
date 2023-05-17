@@ -16,7 +16,6 @@
 
 #include "keystore/client.h"
 #include <base/command_line.h>
-#include <log/log.h>
 
 using base::CommandLine;
 
@@ -91,7 +90,7 @@ int logReturnCode(int code)
         sprintf(buffer, "KEYSTORE_KEY_PERMANENTLY_INVALIDATED");
         break;
     }
-    ALOGI("Return=%s(%d)", buffer, code);
+    printf("Return=%s(%d)\n", buffer, code);
     return code;
 }
 
@@ -120,10 +119,10 @@ extern "C" int main(int argc, char* argv[])
         size_t len = 0;
         int ret = keyStoreGet(name.c_str(), name.length(), &item, &len);
         if (len > 0) {
-            ALOGI("keyStoreGet key=%s,data=%s,length=%zu", name.c_str(), std::string((char*)item, len).c_str(), len);
+            printf("keyStoreGet key=%s,data=%s,length=%zu\n", name.c_str(), std::string((char*)item, len).c_str(), len);
             free(item);
         } else {
-            ALOGE("keyStoreGet %s failed=%d", name.c_str(), ret);
+            printf("keyStoreGet %s failed=%d\n", name.c_str(), ret);
         }
         return logReturnCode(ret);
     } else if (args[0] == "keyStoreDel") {
@@ -132,7 +131,7 @@ extern "C" int main(int argc, char* argv[])
     } else if (args[0] == "keyStoreReset") {
         return logReturnCode(keyStoreReset());
     } else {
-        ALOGE("unknown command:%s", args[0].c_str());
+        printf("unknown command:%s\n", args[0].c_str());
         printUsageAndExit();
         return -1;
     }
