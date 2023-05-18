@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+#include "../blob.h"
 #include "keystore/client.h"
 #include <fstream>
 #include <iostream>
@@ -98,7 +99,7 @@ std::string getUidDir(int32_t uid)
 
 std::string getSaveFilePath(const std::string& name)
 {
-    std::string dir = getUidDir(geteuid()) + "/" + name;
+    std::string dir = getUidDir(geteuid()) + "/" + encodeKeyName(name);
     ALOGV("getSaveFilePath %s", dir.c_str());
     return dir;
 }
@@ -160,8 +161,8 @@ int keyStoreInsert(FAR const char* name, size_t nameLength,
 int keyStoreGet(FAR const char* name, size_t nameLength,
     FAR uint8_t** item, FAR size_t* itemLength)
 {
-    if (!name || nameLength == 0) {
-        ALOGE("keyStoreGet key or nameLength is wrong(key=%p, nameLength=%zu)", name, nameLength);
+    if (!name || nameLength == 0 || !item || !itemLength) {
+        ALOGE("keyStoreGet key or nameLength is wrong(key=%p, nameLength=%zu, item=%p, itemLength=%p)", name, nameLength, item, itemLength);
         return KEYSTORE_SYSTEM_ERROR;
     }
 
