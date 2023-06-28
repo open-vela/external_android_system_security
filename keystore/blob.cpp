@@ -168,7 +168,7 @@ class ArrayStreamBuffer : public std::streambuf {
         bool in = which & std::ios_base::in;
         bool out = which & std::ios_base::out;
         if ((!in && !out) || (in && out && dir == std::ios_base::cur)) return -1;
-        std::streambuf::char_type* newPosPtr;
+        std::streambuf::char_type* newPosPtr = NULL;
         switch (dir) {
         case std::ios_base::beg:
             newPosPtr = pbase();
