@@ -628,7 +628,7 @@ std::string encodeKeyName(const std::string& keyName) {
             // character 'p'.
             second = '0' + (*in & 0x3F);
             switch (second) {
-            // [:<>?\|] if not support in fatfs, escape it to [qrstuv]
+            // [:<>?\] if not support in fatfs, escape it to [qrstu]
             case ':':
                 second = 'q';
                 break;
@@ -643,9 +643,6 @@ std::string encodeKeyName(const std::string& keyName) {
                 break;
             case '\\':
                 second = 'u';
-                break;
-            case '|':
-                second = 'v';
                 break;
             default:
                 break;
@@ -674,7 +671,7 @@ std::string decodeKeyName(const std::string& encodedName) {
             multichar = false;
             second = uint8_t(*in);
             switch (second) {
-            // [:<>?\|] if not support in fatfs, escaped from [qrstuv]
+            // [:<>?\] if not support in fatfs, escaped from [qrstu]
             case 'q':
                 second = ':';
                 break;
@@ -689,9 +686,6 @@ std::string decodeKeyName(const std::string& encodedName) {
                 break;
             case 'u':
                 second = '\\';
-                break;
-            case 'v':
-                second = '|';
                 break;
             default:
                 break;
