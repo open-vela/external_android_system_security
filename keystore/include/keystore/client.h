@@ -46,104 +46,61 @@
 extern "C" {
 #endif
 
-/****************************************************************************
- * Name: keyStoreInsert
+/**
+ * @brief Put an item to keystore
  *
- * Description:
- *   Add data to keystore
- *
- * Input Parameters:
- *   name:Alias of the data, it is unique for per application
- *   nameLength:Length of name
- *   item:Data to added to keystore
- *   itemLength:The length of item
- *
- * Returned Value:
- *   Success if KEYSTORE_NO_ERROR,error if other values
- *
- * Assumptions/Limitations:
- *   Name is unique for per application, it is used for keyStoreInsert,keyStoreGet,keyStoreDel,keyStoreExist
- *
- ****************************************************************************/
+ * the keyStoreInsert using to store an item with a unique name into the
+ * keystore, and keystore internal will encrypt and manage this item
+ * @param[in] name       the name of the item to insert, this name should
+ *                       be unique, and the max length of the name are:
+ *                       "CONFIG_NAME_MAX - 12". If the item name contains
+ *                       special character(for example, that ascii code that
+ *                       between '0' to '~', then the length of the character
+ *                       are calculated as 2)
+ * @param[in] nameLength the length of the name.
+ * @param[in] item       the item data that need to be saved to keystore.
+ * @param[in] itemLength the length of the item data.
+ * @return KEYSTORE_NO_ERROR on success; a value larger than 1 on failure
+ */
 extern int keyStoreInsert(FAR const char* name, size_t nameLength,
     FAR const uint8_t* item, size_t itemLength);
 
-/****************************************************************************
- * Name: keyStoreInsert
+/**
+ * @brief Get data from keystore
  *
- * Description:
- *   Get data from keystore
- *
- * Input Parameters:
- *   name:Alias of the data, it is unique for per application
- *   nameLength:Length of name
- *   item:Data from keystore, memory is alloc in keystore, but caller need call function free() to release memory
- *   itemLength:The length of item getted from keystore
- *
- * Returned Value:
- *   Success if KEYSTORE_NO_ERROR,error if other values
- *
- * Assumptions/Limitations:
- *   Item pointer should release by caller
- *   Name is unique for per application, it is used for keyStoreInsert,keyStoreGet,keyStoreDel,keyStoreExist
- *
- ****************************************************************************/
+ * @param[in] name       the name of the item to fetch from keystore.
+ * @param[in] nameLength the length of the item name.
+ * @param[in] item       data from keystore, memory is alloc in keystore, but
+ *                       caller need call function free() to release memory.
+ * @param[in] itemLength the length of item fetched from keystore.
+ * @return KEYSTORE_NO_ERROR on success; a value larger than 1 on failure
+ */
 extern int keyStoreGet(FAR const char* name, size_t nameLength,
     FAR uint8_t** item, FAR size_t* itemLength);
 
-/****************************************************************************
- * Name: keyStoreDel
+/**
+ * @brief Delete data from keystore
  *
- * Description:
- *   Delete data from keystore
- *
- * Input Parameters:
- *   name:Alias of the data, it is unique for per application
- *   nameLength:Length of name
- *
- * Returned Value:
- *   Success if KEYSTORE_NO_ERROR,error if other values
- *
- * Assumptions/Limitations:
- *   Name is unique for per application, it is used for keyStoreInsert,keyStoreGet,keyStoreDel,keyStoreExist
- *
- ****************************************************************************/
+ * @param[in] name       the name of the item to delete from keystore.
+ * @param[in] nameLength the length of the item name.
+ * @return KEYSTORE_NO_ERROR on success; a value larger than 1 on failure
+ */
 extern int keyStoreDel(FAR const char* name, size_t nameLength);
 
-/****************************************************************************
- * Name: keyStoreExist
+/**
+ * @brief To detect if an item is exist in keystore
  *
- * Description:
- *   If data exist in keystore
- *
- * Input Parameters:
- *   name:Alias of the data, it is unique for per application
- *   nameLength:Length of name
- *
- * Returned Value:
- *   Exist if KEYSTORE_NO_ERROR,error or not exist if other values
- *
- * Assumptions/Limitations:
- *   Name is unique for per application, it is used for keyStoreInsert,keyStoreGet,keyStoreDel,keyStoreExist
- *
- ****************************************************************************/
+ * @param[in] name       the name of the item to detect if exist in keystore.
+ * @param[in] nameLength the length of the item name.
+ * @return KEYSTORE_NO_ERROR on success; a value larger than 1 on failure
+ */
 extern int keyStoreExist(FAR const char* name, size_t nameLength);
 
-/****************************************************************************
- * Name: keyStoreReset
+/**
+ * @brief Detele all keystore datas of current Application
  *
- * Description:
- *   Detele all keystore datas of current Application
- *
- * Input Parameters:
- *
- * Returned Value:
- *   Success if KEYSTORE_NO_ERROR,error if other values
- *
- * Assumptions/Limitations:
- *   Name is unique for per application, it is used for keyStoreInsert,keyStoreGet,keyStoreDel,keyStoreExist
- *
- ****************************************************************************/
+ * @return KEYSTORE_NO_ERROR on success; a value larger than 1 on failure
+ */
 extern int keyStoreReset(void);
 
 #if defined(__cplusplus)
