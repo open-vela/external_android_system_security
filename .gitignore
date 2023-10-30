@@ -1,0 +1,13 @@
+*.o
+.built
+.depend
+Make.dep
+keystore/binder/android/security/*.h
+keystore/binder/android/security/*.cpp
+keystore/binder/android/security/*.o
+keystore/binder/android/security/keystore/*.h
+keystore/binder/android/security/keystore/*.cpp
+keystore/binder/android/security/keystore/*.o
+keystore/binder/android/security/keymaster/*.h
+keystore/binder/android/security/keymaster/*.cpp
+keystore/binder/android/security/keymaster/*.o
