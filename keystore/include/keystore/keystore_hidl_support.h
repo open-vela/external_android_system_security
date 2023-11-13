@@ -142,7 +142,10 @@ inline static Km3HardwareAuthToken hidlVec2Km3AuthToken(const hidl_vec<uint8_t>&
 }
 
 inline std::string hidlVec2String(const hidl_vec<uint8_t>& value) {
-    return std::string(reinterpret_cast<const std::string::value_type*>(&value[0]), value.size());
+    if (value.size()) {
+        return std::string(reinterpret_cast<const std::string::value_type*>(&value[0]), value.size());
+    }
+    return std::string();
 }
 
 }  // namespace keystore
