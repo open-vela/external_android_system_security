@@ -19,7 +19,9 @@ include $(APPDIR)/Make.defs
 CXXEXT = .cpp
 
 VPATH   += :keystore
+DEPPATH += --dep-path keystore
 VPATH   += :keystore/client
+DEPPATH += --dep-path keystore/client
 CXXSRCS += auth_token_table.cpp
 CXXSRCS += blob.cpp
 CXXSRCS += client.cpp
@@ -72,6 +74,7 @@ endif
 
 ifneq ($(CONFIG_ANDROID_KEYSTORE_TEST),)
 VPATH    += :keystore/tests
+DEPPATH += --dep-path keystore/tests
 PROGNAME += keystoreUnitTest
 MAINSRC  += gtest_main_entry.cpp
 CXXSRCS  += KeyAttestationApplicationId.cpp
