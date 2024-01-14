@@ -56,7 +56,7 @@ MODULE    = $(CONFIG_ANDROID_KEYSTORE)
 PRIORITY  = SCHED_PRIORITY_DEFAULT
 STACKSIZE = $(CONFIG_ANDROID_KEYSTORE_STACKSIZE)
 CXXFLAGS += -DGRANT_ROOT_ALL_PERMISSIONS
-CXXFLAGS += -Wno-shadow -Wno-unused-result
+CXXFLAGS += -Wno-shadow -Wno-unused-result -fpermissive
 
 MAINSRC = keystore_main.cpp
 PROGNAME += keystore
