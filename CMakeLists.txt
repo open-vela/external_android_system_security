@@ -91,9 +91,9 @@ if(CONFIG_ANDROID_KEYSTORE)
     SRCS
     keystore/keystore_main.cpp
     COMPILE_FLAGS
+    ${FLAGS}
     INCLUDE_DIRECTORIES
     ${CMAKE_CURRENT_BINARY_DIR}/keystore/binder
-    ${FLAGS}
     DEPENDS
     android_keystore)
 
