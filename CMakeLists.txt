@@ -151,6 +151,7 @@ if(CONFIG_ANDROID_KEYSTORE)
       android_keystore)
   endif()
 
+  nuttx_include_directories_for_all_apps(${CMAKE_CURRENT_BINARY_DIR}/keystore/binder)
   add_dependencies(android_keystore android)
   target_sources(android_keystore PRIVATE ${SRCS})
   target_compile_options(android_keystore PRIVATE ${FLAGS})
